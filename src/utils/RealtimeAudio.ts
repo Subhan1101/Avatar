@@ -1,5 +1,27 @@
 import { supabase } from '@/integrations/supabase/client';
 
+export type RealtimeEvent = {
+  type: string;
+  event_id?: string;
+  delta?: string;
+  response_id?: string;
+  item_id?: string;
+  output_index?: number;
+  transcript?: string;
+  audio?: string;
+  [key: string]: unknown;
+};
+
+export type RealtimeChatCallbacks = {
+  onMessage?: (event: RealtimeEvent) => void;
+  onSpeakingChange?: (speaking: boolean) => void;
+  onTranscript?: (text: string, role: 'user' | 'assistant') => void;
+  onAudioData?: (audioData: Uint8Array) => void;
+  onError?: (error: Error) => void;
+  onStatusChange?: (status: 'connecting' | 'connected' | 'disconnected') => void;
+};
+
+// Audio recorder for capturing user's microphone
 export class AudioRecorder {
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
@@ -20,10 +42,7 @@ export class AudioRecorder {
         }
       });
 
-      this.audioContext = new AudioContext({
-        sampleRate: 24000,
-      });
-
+      this.audioContext = new AudioContext({ sampleRate: 24000 });
       this.source = this.audioContext.createMediaStreamSource(this.stream);
       this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
@@ -41,25 +60,18 @@ export class AudioRecorder {
   }
 
   stop() {
-    if (this.source) {
-      this.source.disconnect();
-      this.source = null;
-    }
-    if (this.processor) {
-      this.processor.disconnect();
-      this.processor = null;
-    }
-    if (this.stream) {
-      this.stream.getTracks().forEach(track => track.stop());
-      this.stream = null;
-    }
-    if (this.audioContext) {
-      this.audioContext.close();
-      this.audioContext = null;
-    }
+    this.source?.disconnect();
+    this.processor?.disconnect();
+    this.stream?.getTracks().forEach(track => track.stop());
+    this.audioContext?.close();
+    this.source = null;
+    this.processor = null;
+    this.stream = null;
+    this.audioContext = null;
   }
 }
 
+// Encode audio for OpenAI API (Float32 -> PCM16 -> Base64)
 export const encodeAudioForAPI = (float32Array: Float32Array): string => {
   const int16Array = new Int16Array(float32Array.length);
   for (let i = 0; i < float32Array.length; i++) {
@@ -79,42 +91,30 @@ export const encodeAudioForAPI = (float32Array: Float32Array): string => {
   return btoa(binary);
 };
 
-export type RealtimeEvent = {
-  type: string;
-  event_id?: string;
-  delta?: string;
-  response_id?: string;
-  item_id?: string;
-  output_index?: number;
-  transcript?: string;
-  [key: string]: unknown;
-};
-
-export type RealtimeChatCallbacks = {
-  onMessage?: (event: RealtimeEvent) => void;
-  onSpeakingChange?: (speaking: boolean) => void;
-  onTranscript?: (text: string, role: 'user' | 'assistant') => void;
-  onError?: (error: Error) => void;
-  onStatusChange?: (status: 'connecting' | 'connected' | 'disconnected') => void;
+// Decode base64 audio to Uint8Array (for Simli)
+export const decodeAudioFromAPI = (base64Audio: string): Uint8Array => {
+  const binaryString = atob(base64Audio);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
 };
 
 export class RealtimeChat {
-  private pc: RTCPeerConnection | null = null;
-  private dc: RTCDataChannel | null = null;
-  private audioEl: HTMLAudioElement;
+  private ws: WebSocket | null = null;
   private recorder: AudioRecorder | null = null;
   private callbacks: RealtimeChatCallbacks;
+  private isRecording = false;
 
   constructor(callbacks: RealtimeChatCallbacks) {
     this.callbacks = callbacks;
-    this.audioEl = document.createElement("audio");
-    this.audioEl.autoplay = true;
   }
 
   async init() {
     try {
       this.callbacks.onStatusChange?.('connecting');
-      console.log('Initializing realtime chat...');
+      console.log('Initializing realtime chat with WebSocket...');
 
       // Get ephemeral token from edge function
       const { data, error } = await supabase.functions.invoke('realtime-session');
@@ -130,70 +130,44 @@ export class RealtimeChat {
       }
 
       const EPHEMERAL_KEY = data.client_secret.value;
-      console.log('Got ephemeral token, creating WebRTC connection...');
+      console.log('Got ephemeral token, creating WebSocket connection...');
 
-      // Create peer connection
-      this.pc = new RTCPeerConnection();
-
-      // Set up remote audio
-      this.pc.ontrack = (e) => {
-        console.log('Received remote audio track');
-        this.audioEl.srcObject = e.streams[0];
-      };
-
-      // Add local audio track
-      const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-      this.pc.addTrack(ms.getTracks()[0]);
-      console.log('Added local audio track');
-
-      // Set up data channel for events
-      this.dc = this.pc.createDataChannel("oai-events");
-      this.dc.addEventListener("message", (e) => {
-        const event = JSON.parse(e.data);
-        console.log("Received event:", event.type);
-        this.handleEvent(event);
-      });
-
-      this.dc.addEventListener("open", () => {
-        console.log('Data channel opened');
-        this.callbacks.onStatusChange?.('connected');
-      });
-
-      this.dc.addEventListener("close", () => {
-        console.log('Data channel closed');
-        this.callbacks.onStatusChange?.('disconnected');
-      });
-
-      // Create and set local description
-      const offer = await this.pc.createOffer();
-      await this.pc.setLocalDescription(offer);
-
-      // Connect to OpenAI's Realtime API via WebRTC
-      const baseUrl = "https://api.openai.com/v1/realtime";
-      const model = "gpt-4o-realtime-preview-2024-12-17";
+      // Connect via WebSocket (not WebRTC) to get audio data
+      const wsUrl = `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17`;
       
-      console.log('Connecting to OpenAI Realtime API...');
-      const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
-        method: "POST",
-        body: offer.sdp,
-        headers: {
-          Authorization: `Bearer ${EPHEMERAL_KEY}`,
-          "Content-Type": "application/sdp"
-        },
-      });
+      this.ws = new WebSocket(wsUrl, [
+        'realtime',
+        `openai-insecure-api-key.${EPHEMERAL_KEY}`,
+        'openai-beta.realtime-v1'
+      ]);
 
-      if (!sdpResponse.ok) {
-        const errorText = await sdpResponse.text();
-        throw new Error(`Failed to connect to OpenAI: ${sdpResponse.status} - ${errorText}`);
-      }
-
-      const answer: RTCSessionDescriptionInit = {
-        type: "answer",
-        sdp: await sdpResponse.text(),
+      this.ws.onopen = () => {
+        console.log('WebSocket connected');
+        this.callbacks.onStatusChange?.('connected');
+        
+        // Start recording user audio
+        this.startRecording();
       };
 
-      await this.pc.setRemoteDescription(answer);
-      console.log("WebRTC connection established successfully");
+      this.ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          this.handleEvent(data);
+        } catch (e) {
+          console.error('Error parsing WebSocket message:', e);
+        }
+      };
+
+      this.ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        this.callbacks.onError?.(new Error('WebSocket connection error'));
+      };
+
+      this.ws.onclose = () => {
+        console.log('WebSocket closed');
+        this.callbacks.onStatusChange?.('disconnected');
+        this.stopRecording();
+      };
 
     } catch (error) {
       console.error("Error initializing chat:", error);
@@ -203,26 +177,87 @@ export class RealtimeChat {
     }
   }
 
+  private async startRecording() {
+    try {
+      this.recorder = new AudioRecorder((audioData) => {
+        if (this.ws?.readyState === WebSocket.OPEN && this.isRecording) {
+          const base64Audio = encodeAudioForAPI(audioData);
+          this.ws.send(JSON.stringify({
+            type: 'input_audio_buffer.append',
+            audio: base64Audio
+          }));
+        }
+      });
+      
+      await this.recorder.start();
+      this.isRecording = true;
+      console.log('Audio recording started');
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+    }
+  }
+
+  private stopRecording() {
+    this.isRecording = false;
+    this.recorder?.stop();
+    this.recorder = null;
+  }
+
   private handleEvent(event: RealtimeEvent) {
+    console.log('Received event:', event.type);
     this.callbacks.onMessage?.(event);
 
     switch (event.type) {
+      case 'session.created':
+        console.log('Session created, configuring...');
+        // Configure the session
+        this.ws?.send(JSON.stringify({
+          type: 'session.update',
+          session: {
+            modalities: ['text', 'audio'],
+            instructions: 'You are a helpful AI IT Support Agent. Be concise and helpful.',
+            voice: 'alloy',
+            input_audio_format: 'pcm16',
+            output_audio_format: 'pcm16',
+            input_audio_transcription: {
+              model: 'whisper-1'
+            },
+            turn_detection: {
+              type: 'server_vad',
+              threshold: 0.5,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 1000
+            },
+            temperature: 0.8
+          }
+        }));
+        break;
+
       case 'response.audio.delta':
+        // This is the key - we receive audio data here and send to Simli
+        if (event.delta) {
+          const audioData = decodeAudioFromAPI(event.delta);
+          this.callbacks.onAudioData?.(audioData);
+        }
         this.callbacks.onSpeakingChange?.(true);
         break;
+
       case 'response.audio.done':
         this.callbacks.onSpeakingChange?.(false);
         break;
+
       case 'response.audio_transcript.delta':
         if (event.delta) {
           this.callbacks.onTranscript?.(event.delta, 'assistant');
         }
         break;
+
       case 'conversation.item.input_audio_transcription.completed':
         if (event.transcript) {
-          this.callbacks.onTranscript?.(event.transcript, 'user');
+          this.callbacks.onTranscript?.(event.transcript as string, 'user');
         }
         break;
+
       case 'error':
         console.error('Realtime API error:', event);
         this.callbacks.onError?.(new Error(JSON.stringify(event)));
@@ -231,34 +266,36 @@ export class RealtimeChat {
   }
 
   sendTextMessage(text: string) {
-    if (!this.dc || this.dc.readyState !== 'open') {
-      throw new Error('Data channel not ready');
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not ready');
     }
 
-    const event = {
+    // Create conversation item
+    this.ws.send(JSON.stringify({
       type: 'conversation.item.create',
       item: {
         type: 'message',
         role: 'user',
-        content: [
-          {
-            type: 'input_text',
-            text
-          }
-        ]
+        content: [{
+          type: 'input_text',
+          text
+        }]
       }
-    };
+    }));
 
-    this.dc.send(JSON.stringify(event));
-    this.dc.send(JSON.stringify({ type: 'response.create' }));
+    // Request response
+    this.ws.send(JSON.stringify({ type: 'response.create' }));
+  }
+
+  setMuted(muted: boolean) {
+    this.isRecording = !muted;
   }
 
   disconnect() {
     console.log('Disconnecting realtime chat...');
-    this.recorder?.stop();
-    this.dc?.close();
-    this.pc?.close();
-    this.audioEl.srcObject = null;
+    this.stopRecording();
+    this.ws?.close();
+    this.ws = null;
     this.callbacks.onStatusChange?.('disconnected');
   }
 }
