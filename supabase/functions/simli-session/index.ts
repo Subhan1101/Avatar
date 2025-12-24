@@ -29,7 +29,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        faceId: faceId || "tmp9i8bbq7c",
+        faceId: faceId || "cace3ef7-a4c4-425d-a8cf-a5358eb0c427",
         apiKey: SIMLI_API_KEY,
         handleSilence: true,
         maxSessionLength: 3600,
