@@ -210,13 +210,13 @@ export class RealtimeChat {
     switch (event.type) {
       case 'session.created':
         console.log('Session created, configuring...');
-        // Configure the session
+        // Configure the session with female voice to match avatar
         this.ws?.send(JSON.stringify({
           type: 'session.update',
           session: {
             modalities: ['text', 'audio'],
-            instructions: 'You are a helpful AI IT Support Agent. Be concise and helpful.',
-            voice: 'alloy',
+            instructions: 'You are a helpful AI IT Support Agent. Be concise, friendly and helpful. Speak in a warm, professional tone.',
+            voice: 'shimmer', // Female voice to match the avatar
             input_audio_format: 'pcm16',
             output_audio_format: 'pcm16',
             input_audio_transcription: {
