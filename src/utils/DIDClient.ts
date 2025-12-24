@@ -142,21 +142,9 @@ export class DIDClient {
         console.error('SDP submission error:', sdpError);
       }
 
-      // Create chat session
-      console.log('Creating chat session...');
-      const { data: chatData, error: chatError } = await supabase.functions.invoke('did-stream', {
-        body: {
-          action: 'create-chat',
-          agentId: this.agentId,
-        }
-      });
-
-      if (chatError) {
-        console.error('Chat creation error:', chatError);
-      } else {
-        this.chatId = chatData?.id;
-        console.log('Chat created:', this.chatId);
-      }
+      // Note: We don't use D-ID's chat API (requires paid credits)
+      // Instead we use our own Lovable AI and the speak endpoint
+      console.log('D-ID stream ready - using speak endpoint with our AI');
 
     } catch (error) {
       console.error('D-ID init error:', error);
