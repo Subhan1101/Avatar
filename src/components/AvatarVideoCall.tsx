@@ -2,16 +2,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Mic, MicOff, Phone, Monitor, MessageSquare, Volume2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { RealtimeChat, RealtimeEvent } from '@/utils/RealtimeAudio';
-import { SimliAvatarClient } from '@/utils/SimliClient';
+import { HeyGenAvatarClient } from '@/utils/HeyGenClient';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Message {
   id: number;
   sender: 'user' | 'agent';
   text: string;
 }
-
-const SIMLI_FACE_ID = "cace3ef7-a4c4-425d-a8cf-a5358eb0c427";
 
 export const AvatarVideoCall = () => {
   const { toast } = useToast();
@@ -21,14 +19,11 @@ export const AvatarVideoCall = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [audioLevels, setAudioLevels] = useState([0.3, 0.5, 0.8, 0.4, 0.6]);
+  const [isProcessing, setIsProcessing] = useState(false);
   
-  const chatRef = useRef<RealtimeChat | null>(null);
-  const simliRef = useRef<SimliAvatarClient | null>(null);
+  const heygenRef = useRef<HeyGenAvatarClient | null>(null);
   const messageIdRef = useRef(0);
-  const currentAssistantMessageRef = useRef<string>('');
-  
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
 
   // Audio wave animation when speaking
   useEffect(() => {
@@ -39,104 +34,58 @@ export const AvatarVideoCall = () => {
     return () => clearInterval(interval);
   }, [isSpeaking]);
 
-  // Handle mute toggle
-  useEffect(() => {
-    chatRef.current?.setMuted(isMuted);
-  }, [isMuted]);
-
-  const handleTranscript = useCallback((text: string, role: 'user' | 'assistant') => {
-    if (role === 'user') {
-      setMessages(prev => [...prev, {
-        id: ++messageIdRef.current,
-        sender: 'user',
-        text
-      }]);
-    } else {
-      currentAssistantMessageRef.current += text;
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg?.sender === 'agent') {
-          return prev.map((m, i) =>
-            i === prev.length - 1
-              ? { ...m, text: currentAssistantMessageRef.current }
-              : m
-          );
-        } else {
-          return [...prev, {
-            id: ++messageIdRef.current,
-            sender: 'agent',
-            text: currentAssistantMessageRef.current
-          }];
-        }
-      });
-    }
-  }, []);
-
-  const handleMessage = useCallback((event: RealtimeEvent) => {
-    if (event.type === 'response.created') {
-      currentAssistantMessageRef.current = '';
-    }
-  }, []);
-
-  // Key function: Send OpenAI audio to Simli for lip-sync
-  const handleAudioData = useCallback((audioData: Uint8Array) => {
-    // Send audio data to Simli for lip-sync animation
-    simliRef.current?.sendAudioData(audioData);
-  }, []);
-
   const startConversation = useCallback(async () => {
     try {
       setStatus('connecting');
 
-      // Initialize Simli avatar first
-      if (videoRef.current && audioRef.current) {
-        console.log('Initializing Simli avatar...');
-        simliRef.current = new SimliAvatarClient({
-          onConnected: () => {
-            console.log('Simli avatar connected and ready for lip-sync');
-          },
-          onDisconnected: () => {
-            console.log('Simli avatar disconnected');
-          },
-          onFailed: (error) => {
-            console.error('Simli avatar failed:', error);
-            toast({
-              variant: 'destructive',
-              title: 'Avatar Error',
-              description: error.message || 'Failed to initialize avatar'
-            });
-          },
-          onSpeaking: () => setIsSpeaking(true),
-          onSilent: () => setIsSpeaking(false),
-        });
-
-        await simliRef.current.init(videoRef.current, audioRef.current, SIMLI_FACE_ID);
-        console.log('Simli avatar initialized');
+      if (!videoRef.current) {
+        throw new Error("Video element not found");
       }
 
-      // Initialize OpenAI Realtime with WebSocket (to capture audio data)
-      console.log('Initializing OpenAI Realtime...');
-      chatRef.current = new RealtimeChat({
-        onMessage: handleMessage,
-        onSpeakingChange: setIsSpeaking,
-        onTranscript: handleTranscript,
-        onAudioData: handleAudioData, // This sends audio to Simli for lip-sync
-        onStatusChange: setStatus,
+      console.log('Initializing HeyGen avatar...');
+      heygenRef.current = new HeyGenAvatarClient({
+        onConnected: () => {
+          console.log('HeyGen avatar connected');
+          setStatus('connected');
+          
+          // Send initial greeting
+          setTimeout(() => {
+            heygenRef.current?.speak("Hello! I'm Aria, your friendly IT support assistant. How can I help you today?");
+            setMessages([{
+              id: ++messageIdRef.current,
+              sender: 'agent',
+              text: "Hello! I'm Aria, your friendly IT support assistant. How can I help you today?"
+            }]);
+          }, 1000);
+        },
+        onDisconnected: () => {
+          console.log('HeyGen avatar disconnected');
+          setStatus('disconnected');
+        },
+        onSpeakingStart: () => setIsSpeaking(true),
+        onSpeakingEnd: () => setIsSpeaking(false),
         onError: (error) => {
-          console.error('Realtime error:', error);
+          console.error('HeyGen error:', error);
           toast({
             variant: 'destructive',
-            title: 'Connection Error',
-            description: error.message || 'Failed to connect to AI agent'
+            title: 'Avatar Error',
+            description: error.message || 'Failed to initialize avatar'
           });
-        }
+          setStatus('disconnected');
+        },
+        onStreamReady: (stream) => {
+          console.log('Stream ready');
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        },
       });
 
-      await chatRef.current.init();
+      await heygenRef.current.init(videoRef.current);
 
       toast({
         title: 'Connected',
-        description: 'AI Support Agent is ready with lip-sync!'
+        description: 'AI Support Agent Aria is ready to help!'
       });
     } catch (error) {
       console.error('Error starting conversation:', error);
@@ -147,46 +96,78 @@ export const AvatarVideoCall = () => {
         description: error instanceof Error ? error.message : 'Failed to start conversation'
       });
     }
-  }, [handleMessage, handleTranscript, handleAudioData, toast]);
+  }, [toast]);
 
   const endConversation = useCallback(() => {
-    chatRef.current?.disconnect();
-    chatRef.current = null;
-    simliRef.current?.disconnect();
-    simliRef.current = null;
+    heygenRef.current?.disconnect();
+    heygenRef.current = null;
     setStatus('disconnected');
     setIsSpeaking(false);
+    setMessages([]);
     toast({
       title: 'Disconnected',
       description: 'Session ended'
     });
   }, [toast]);
 
-  const sendTextMessage = useCallback(() => {
-    if (!inputText.trim() || status !== 'connected') return;
-
+  // Get AI response and make avatar speak it
+  const getAIResponse = useCallback(async (userMessage: string) => {
+    setIsProcessing(true);
+    
     try {
-      chatRef.current?.sendTextMessage(inputText);
+      // Use Lovable AI to generate response
+      const { data, error } = await supabase.functions.invoke('ai-chat', {
+        body: { message: userMessage }
+      });
+
+      if (error) throw error;
+
+      const aiResponse = data?.response || "I'm sorry, I couldn't process that. Could you please try again?";
+      
+      // Add AI response to messages
       setMessages(prev => [...prev, {
         id: ++messageIdRef.current,
-        sender: 'user',
-        text: inputText
+        sender: 'agent',
+        text: aiResponse
       }]);
-      setInputText('');
+
+      // Make avatar speak the response with lip-sync
+      await heygenRef.current?.speak(aiResponse);
+
     } catch (error) {
-      console.error('Error sending message:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to send message'
-      });
+      console.error('Error getting AI response:', error);
+      const errorMessage = "I'm having trouble connecting right now. Please try again.";
+      setMessages(prev => [...prev, {
+        id: ++messageIdRef.current,
+        sender: 'agent',
+        text: errorMessage
+      }]);
+      await heygenRef.current?.speak(errorMessage);
+    } finally {
+      setIsProcessing(false);
     }
-  }, [inputText, status, toast]);
+  }, []);
+
+  const sendTextMessage = useCallback(async () => {
+    if (!inputText.trim() || status !== 'connected' || isProcessing) return;
+
+    const userMessage = inputText.trim();
+    setInputText('');
+
+    // Add user message
+    setMessages(prev => [...prev, {
+      id: ++messageIdRef.current,
+      sender: 'user',
+      text: userMessage
+    }]);
+
+    // Get AI response and make avatar speak
+    await getAIResponse(userMessage);
+  }, [inputText, status, isProcessing, getAIResponse]);
 
   useEffect(() => {
     return () => {
-      chatRef.current?.disconnect();
-      simliRef.current?.disconnect();
+      heygenRef.current?.disconnect();
     };
   }, []);
 
@@ -201,7 +182,7 @@ export const AvatarVideoCall = () => {
               status === 'connecting' ? 'bg-yellow-500 animate-pulse' :
               'bg-muted-foreground'
             }`} />
-            <span className="text-sm font-medium text-foreground">AI IT Support Agent</span>
+            <span className="text-sm font-medium text-foreground">AI IT Support Agent - Aria</span>
             <span className="text-xs text-muted-foreground">
               • {status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting...' : 'Disconnected'}
             </span>
@@ -223,14 +204,12 @@ export const AvatarVideoCall = () => {
         </div>
 
         <div className="flex flex-col lg:flex-row">
-          {/* Avatar video section - FULL BODY VIEW */}
+          {/* Avatar video section */}
           <div className="flex-1 relative bg-gradient-to-b from-secondary/50 to-background min-h-[500px] lg:min-h-[600px]">
-            {/* Subtle glow effect */}
             <div className="absolute inset-0 bg-gradient-radial from-primary/5 via-transparent to-transparent" />
 
-            {/* Live Simli Avatar Video - Full body view */}
             <div className="relative z-10 flex items-center justify-center h-full">
-              {/* Video element for Simli avatar - full size */}
+              {/* HeyGen Avatar Video */}
               <video
                 ref={videoRef}
                 autoPlay
@@ -239,9 +218,6 @@ export const AvatarVideoCall = () => {
                   status === 'connected' ? 'opacity-100' : 'opacity-0 absolute'
                 }`}
               />
-              
-              {/* Audio element for Simli - this plays the lip-synced audio */}
-              <audio ref={audioRef} autoPlay className="hidden" />
               
               {/* Placeholder when not connected */}
               {status !== 'connected' && (
@@ -252,6 +228,7 @@ export const AvatarVideoCall = () => {
                     <div className="text-center">
                       <Loader2 className="w-16 h-16 text-primary animate-spin mx-auto mb-4" />
                       <p className="text-muted-foreground">Initializing avatar...</p>
+                      <p className="text-muted-foreground/60 text-sm mt-2">This may take a moment</p>
                     </div>
                   ) : (
                     <div className="text-center">
@@ -283,6 +260,11 @@ export const AvatarVideoCall = () => {
                         ))}
                       </div>
                       <span className="text-sm text-foreground font-medium ml-2">Speaking...</span>
+                    </>
+                  ) : isProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                      <span className="text-sm text-muted-foreground">Thinking...</span>
                     </>
                   ) : (
                     <>
@@ -356,7 +338,7 @@ export const AvatarVideoCall = () => {
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {messages.length === 0 && status === 'disconnected' && (
                 <div className="text-center text-muted-foreground text-sm py-8">
-                  Click "Start Call" to begin talking with the AI Support Agent
+                  Click "Start Call" to begin talking with Aria
                 </div>
               )}
               {messages.map((message) => (
@@ -386,16 +368,16 @@ export const AvatarVideoCall = () => {
                   onChange={(e) => setInputText(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && sendTextMessage()}
                   placeholder={status === 'connected' ? "Type a message..." : "Connect to send messages"}
-                  disabled={status !== 'connected'}
+                  disabled={status !== 'connected' || isProcessing}
                   className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
                 />
                 <Button
                   size="sm"
                   variant="hero"
                   onClick={sendTextMessage}
-                  disabled={status !== 'connected' || !inputText.trim()}
+                  disabled={status !== 'connected' || !inputText.trim() || isProcessing}
                 >
-                  Send
+                  {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Send'}
                 </Button>
               </div>
             </div>
