@@ -29,7 +29,20 @@ export const AvatarVideoCall = () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
 
-  // Initialize Speech Recognition
+  // Start continuous listening
+  const startListening = useCallback(() => {
+    if (!recognitionRef.current || isMuted) return;
+    
+    try {
+      recognitionRef.current.start();
+      setIsListening(true);
+      console.log('Started listening...');
+    } catch (error) {
+      console.error('Error starting speech recognition:', error);
+    }
+  }, [isMuted]);
+
+  // Initialize Speech Recognition with continuous listening
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -39,34 +52,82 @@ export const AvatarVideoCall = () => {
       recognition.interimResults = false;
       recognition.lang = 'en-US';
 
-      recognition.onresult = (event) => {
+      recognition.onresult = (event: any) => {
         const transcript = event.results[0][0].transcript;
         console.log('Voice input:', transcript);
         if (transcript.trim()) {
           handleVoiceInput(transcript.trim());
         }
-        setIsListening(false);
       };
 
-      recognition.onerror = (event) => {
+      recognition.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error);
         setIsListening(false);
-        if (event.error !== 'no-speech') {
-          toast({
-            variant: 'destructive',
-            title: 'Voice Input Error',
-            description: 'Could not recognize speech. Please try again.'
-          });
+        // Auto-restart on certain errors if still connected
+        if (event.error === 'no-speech' || event.error === 'aborted') {
+          // Will restart in onend
         }
       };
 
       recognition.onend = () => {
         setIsListening(false);
+        // Auto-restart listening if connected and not muted and not processing
+        if (status === 'connected' && !isMuted && !isProcessing && !isSpeaking) {
+          setTimeout(() => {
+            startListening();
+          }, 100);
+        }
       };
 
       recognitionRef.current = recognition;
     }
-  }, []);
+  }, [status, isMuted, isProcessing, isSpeaking, startListening]);
+
+  // Auto-start listening when connected
+  useEffect(() => {
+    if (status === 'connected' && !isMuted && !isProcessing && !isSpeaking && !isListening) {
+      const timer = setTimeout(() => {
+        startListening();
+      }, 2000); // Wait 2 seconds after greeting before starting to listen
+      return () => clearTimeout(timer);
+    }
+  }, [status, isMuted, isProcessing, isSpeaking, isListening, startListening]);
+
+  // Stop listening when muted
+  useEffect(() => {
+    if (isMuted && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // Ignore
+      }
+      setIsListening(false);
+    } else if (!isMuted && status === 'connected' && !isProcessing && !isSpeaking) {
+      startListening();
+    }
+  }, [isMuted, status, isProcessing, isSpeaking, startListening]);
+
+  // Stop listening when avatar is speaking or processing
+  useEffect(() => {
+    if ((isSpeaking || isProcessing) && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // Ignore
+      }
+      setIsListening(false);
+    }
+  }, [isSpeaking, isProcessing]);
+
+  // Restart listening after avatar finishes speaking
+  useEffect(() => {
+    if (!isSpeaking && !isProcessing && status === 'connected' && !isMuted) {
+      const timer = setTimeout(() => {
+        startListening();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isSpeaking, isProcessing, status, isMuted, startListening]);
 
   const handleVoiceInput = useCallback(async (transcript: string) => {
     if (!transcript || status !== 'connected' || isProcessing) return;
@@ -82,28 +143,9 @@ export const AvatarVideoCall = () => {
     await getAIResponse(transcript);
   }, [status, isProcessing]);
 
-  const toggleVoiceInput = useCallback(() => {
-    if (!recognitionRef.current) {
-      toast({
-        variant: 'destructive',
-        title: 'Not Supported',
-        description: 'Voice input is not supported in this browser.'
-      });
-      return;
-    }
-
-    if (isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-    } else {
-      try {
-        recognitionRef.current.start();
-        setIsListening(true);
-      } catch (error) {
-        console.error('Error starting speech recognition:', error);
-      }
-    }
-  }, [isListening, toast]);
+  const toggleMute = useCallback(() => {
+    setIsMuted(prev => !prev);
+  }, []);
 
   // Audio wave animation when speaking
   useEffect(() => {
@@ -441,44 +483,31 @@ export const AvatarVideoCall = () => {
 
             {/* Input area */}
             <div className="p-4 border-t border-border/50">
+              {isListening && (
+                <p className="text-xs text-primary mb-2 text-center animate-pulse flex items-center justify-center gap-2">
+                  <AudioLines className="w-3 h-3" />
+                  Listening... Just speak naturally
+                </p>
+              )}
               <div className="flex items-center gap-2 bg-secondary rounded-xl px-4 py-3">
-                <Button
-                  size="icon"
-                  variant={isListening ? "destructive" : "ghost"}
-                  onClick={toggleVoiceInput}
-                  disabled={status !== 'connected' || isProcessing}
-                  className="shrink-0 h-8 w-8"
-                  title={isListening ? "Stop listening" : "Voice input"}
-                >
-                  {isListening ? (
-                    <AudioLines className="w-4 h-4 animate-pulse" />
-                  ) : (
-                    <Mic className="w-4 h-4" />
-                  )}
-                </Button>
                 <input
                   type="text"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && sendTextMessage()}
-                  placeholder={isListening ? "Listening..." : status === 'connected' ? "Type or speak..." : "Connect to send messages"}
-                  disabled={status !== 'connected' || isProcessing || isListening}
+                  placeholder={status === 'connected' ? "Or type a message..." : "Connect to send messages"}
+                  disabled={status !== 'connected' || isProcessing}
                   className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
                 />
                 <Button
                   size="sm"
                   variant="hero"
                   onClick={sendTextMessage}
-                  disabled={status !== 'connected' || !inputText.trim() || isProcessing || isListening}
+                  disabled={status !== 'connected' || !inputText.trim() || isProcessing}
                 >
                   {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Send'}
                 </Button>
               </div>
-              {isListening && (
-                <p className="text-xs text-primary mt-2 text-center animate-pulse">
-                  🎤 Speak now... Click the mic to stop
-                </p>
-              )}
             </div>
           </div>
         </div>
