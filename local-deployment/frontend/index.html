@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aria - AI Voice Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 1; }
+            100% { transform: scale(1.4); opacity: 0; }
+        }
+        .pulse-ring {
+            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .float {
+            animation: float 3s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-2xl">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-white mb-2">Aria</h1>
+            <p class="text-purple-300">AI IT Support Assistant</p>
+        </div>
+
+        <!-- Avatar Container -->
+        <div class="flex justify-center mb-8">
+            <div class="relative">
+                <div id="pulse-outer" class="absolute inset-0 bg-purple-500/30 rounded-full pulse-ring hidden"></div>
+                <div id="avatar" class="w-32 h-32 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center float">
+                    <svg class="w-16 h-16 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status -->
+        <div id="status" class="text-center mb-8">
+            <span class="inline-flex items-center px-4 py-2 rounded-full bg-slate-800 text-slate-300">
+                <span id="status-dot" class="w-2 h-2 rounded-full bg-slate-500 mr-2"></span>
+                <span id="status-text">Click to start conversation</span>
+            </span>
+        </div>
+
+        <!-- Transcript -->
+        <div id="transcript-container" class="bg-slate-800/50 backdrop-blur rounded-2xl p-6 mb-8 min-h-[200px] max-h-[400px] overflow-y-auto hidden">
+            <div id="transcript" class="space-y-4"></div>
+        </div>
+
+        <!-- Controls -->
+        <div class="flex justify-center gap-4">
+            <button id="start-btn" onclick="startConversation()" 
+                class="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-full transition-all transform hover:scale-105 shadow-lg">
+                🎤 Start Conversation
+            </button>
+            <button id="stop-btn" onclick="endConversation()" 
+                class="px-8 py-4 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-full transition-all hidden">
+                ⏹️ End Conversation
+            </button>
+        </div>
+
+        <!-- Error Message -->
+        <div id="error" class="mt-4 p-4 bg-red-500/20 border border-red-500 rounded-lg text-red-300 text-center hidden"></div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE_URL = 'http://localhost:8000';
+        
+        // State
+        let pc = null;
+        let dc = null;
+        let audioEl = null;
+        let isConnected = false;
+
+        // DOM Elements
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const pulseOuter = document.getElementById('pulse-outer');
+        const transcriptContainer = document.getElementById('transcript-container');
+        const transcript = document.getElementById('transcript');
+        const errorDiv = document.getElementById('error');
+
+        function updateStatus(status, color) {
+            statusText.textContent = status;
+            statusDot.className = `w-2 h-2 rounded-full mr-2 bg-${color}-500`;
+        }
+
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            setTimeout(() => errorDiv.classList.add('hidden'), 5000);
+        }
+
+        function addTranscript(role, text) {
+            transcriptContainer.classList.remove('hidden');
+            const div = document.createElement('div');
+            div.className = role === 'user' 
+                ? 'bg-purple-600/30 rounded-lg p-3 ml-8' 
+                : 'bg-slate-700/50 rounded-lg p-3 mr-8';
+            div.innerHTML = `
+                <span class="text-xs text-${role === 'user' ? 'purple' : 'pink'}-300 font-semibold">
+                    ${role === 'user' ? 'You' : 'Aria'}
+                </span>
+                <p class="text-white mt-1">${text}</p>
+            `;
+            transcript.appendChild(div);
+            transcript.scrollTop = transcript.scrollHeight;
+        }
+
+        async function startConversation() {
+            try {
+                updateStatus('Connecting...', 'yellow');
+                startBtn.disabled = true;
+
+                // Get ephemeral token from backend
+                const tokenResponse = await fetch(`${API_BASE_URL}/api/realtime-session`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!tokenResponse.ok) {
+                    throw new Error('Failed to get session token');
+                }
+
+                const data = await tokenResponse.json();
+                const EPHEMERAL_KEY = data.client_secret?.value;
+
+                if (!EPHEMERAL_KEY) {
+                    throw new Error('No ephemeral key received');
+                }
+
+                // Create audio element
+                audioEl = document.createElement('audio');
+                audioEl.autoplay = true;
+
+                // Create peer connection
+                pc = new RTCPeerConnection();
+
+                // Set up remote audio
+                pc.ontrack = (e) => {
+                    audioEl.srcObject = e.streams[0];
+                };
+
+                // Add local audio track
+                const ms = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    } 
+                });
+                pc.addTrack(ms.getTracks()[0]);
+
+                // Set up data channel
+                dc = pc.createDataChannel('oai-events');
+                
+                dc.addEventListener('open', () => {
+                    console.log('Data channel opened');
+                    updateStatus('Connected - Speak now!', 'green');
+                    pulseOuter.classList.remove('hidden');
+                });
+
+                dc.addEventListener('message', (e) => {
+                    const event = JSON.parse(e.data);
+                    console.log('Received:', event.type);
+
+                    if (event.type === 'response.audio_transcript.delta') {
+                        // Handle partial transcript
+                    } else if (event.type === 'response.audio_transcript.done') {
+                        if (event.transcript) {
+                            addTranscript('assistant', event.transcript);
+                        }
+                    } else if (event.type === 'conversation.item.input_audio_transcription.completed') {
+                        if (event.transcript) {
+                            addTranscript('user', event.transcript);
+                        }
+                    } else if (event.type === 'response.audio.delta') {
+                        pulseOuter.classList.remove('hidden');
+                    } else if (event.type === 'response.audio.done') {
+                        pulseOuter.classList.add('hidden');
+                    }
+                });
+
+                // Create and set local description
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                // Connect to OpenAI
+                const baseUrl = 'https://api.openai.com/v1/realtime';
+                const model = 'gpt-4o-realtime-preview-2024-12-17';
+                
+                const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+                    method: 'POST',
+                    body: offer.sdp,
+                    headers: {
+                        'Authorization': `Bearer ${EPHEMERAL_KEY}`,
+                        'Content-Type': 'application/sdp'
+                    }
+                });
+
+                if (!sdpResponse.ok) {
+                    throw new Error('Failed to connect to OpenAI Realtime');
+                }
+
+                const answer = {
+                    type: 'answer',
+                    sdp: await sdpResponse.text()
+                };
+
+                await pc.setRemoteDescription(answer);
+
+                // Update UI
+                isConnected = true;
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+                startBtn.disabled = false;
+
+            } catch (error) {
+                console.error('Error:', error);
+                showError(error.message);
+                updateStatus('Connection failed', 'red');
+                startBtn.disabled = false;
+            }
+        }
+
+        function endConversation() {
+            if (dc) dc.close();
+            if (pc) pc.close();
+            if (audioEl) audioEl.srcObject = null;
+
+            dc = null;
+            pc = null;
+            audioEl = null;
+            isConnected = false;
+
+            updateStatus('Disconnected', 'slate');
+            pulseOuter.classList.add('hidden');
+            startBtn.classList.remove('hidden');
+            stopBtn.classList.add('hidden');
+        }
+
+        // Handle page unload
+        window.addEventListener('beforeunload', endConversation);
+    </script>
+</body>
+</html>
