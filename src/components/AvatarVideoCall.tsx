@@ -6,7 +6,7 @@ import { DIDClient } from '@/utils/DIDClient';
 import { supabase } from '@/integrations/supabase/client';
 
 // Your D-ID Agent ID
-const DID_AGENT_ID = 'v2_agt_KLrQx07r';
+const DID_AGENT_ID = 'v2_agt_8rjurqlQ';
 
 interface Message {
   id: number;
