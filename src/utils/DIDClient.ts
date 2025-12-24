@@ -112,9 +112,14 @@ export class DIDClient {
       };
 
       // Set remote description from offer
+      // D-ID returns offer as an object with type and sdp, or as a string
+      const offerSdp = typeof streamData.offer === 'string' 
+        ? streamData.offer 
+        : streamData.offer.sdp;
+      
       await this.peerConnection.setRemoteDescription({
         type: 'offer',
-        sdp: streamData.offer,
+        sdp: offerSdp,
       });
 
       // Create answer
