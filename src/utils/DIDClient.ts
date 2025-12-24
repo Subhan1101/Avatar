@@ -19,6 +19,8 @@ export class DIDClient {
   private chatId: string | null = null;
   private videoElement: HTMLVideoElement | null = null;
   private isSpeaking = false;
+  private speakQueue: string[] = [];
+  private isProcessingQueue = false;
 
   constructor(agentId: string, callbacks: DIDClientCallbacks) {
     this.agentId = agentId;
@@ -159,7 +161,21 @@ export class DIDClient {
       return;
     }
 
+    // If already speaking, queue this request
+    if (this.isSpeaking || this.isProcessingQueue) {
+      console.log('Already speaking, queueing:', text.substring(0, 30) + '...');
+      this.speakQueue.push(text);
+      return;
+    }
+
+    await this.processSpeak(text);
+  }
+
+  private async processSpeak(text: string): Promise<void> {
+    if (!this.streamId || !this.sessionId) return;
+
     try {
+      this.isProcessingQueue = true;
       this.isSpeaking = true;
       this.callbacks.onSpeakingStart();
 
@@ -176,21 +192,33 @@ export class DIDClient {
       });
 
       if (error) {
-        throw error;
+        console.error('Speak API error:', error);
+        // Don't throw - continue to end speaking state
       }
 
       // Estimate speaking duration based on text length (roughly 150 words per minute)
       const words = text.split(' ').length;
-      const durationMs = Math.max(2000, (words / 150) * 60 * 1000);
+      const durationMs = Math.max(3000, (words / 150) * 60 * 1000);
       
-      setTimeout(() => {
-        this.isSpeaking = false;
-        this.callbacks.onSpeakingEnd();
-      }, durationMs);
+      // Wait for speech to complete
+      await new Promise(resolve => setTimeout(resolve, durationMs));
+      
+      this.isSpeaking = false;
+      this.callbacks.onSpeakingEnd();
+      this.isProcessingQueue = false;
+
+      // Process next in queue if any
+      if (this.speakQueue.length > 0) {
+        const nextText = this.speakQueue.shift()!;
+        // Small delay between speeches to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await this.processSpeak(nextText);
+      }
 
     } catch (error) {
       console.error('Speak error:', error);
       this.isSpeaking = false;
+      this.isProcessingQueue = false;
       this.callbacks.onSpeakingEnd();
     }
   }
