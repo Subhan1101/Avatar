@@ -31,6 +31,7 @@ export const AvatarVideoCall = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
+  const lastProcessedRef = useRef<number>(0);
 
   // Start continuous listening
   const startListening = useCallback(() => {
@@ -134,6 +135,14 @@ export const AvatarVideoCall = () => {
 
   const handleVoiceInput = useCallback(async (transcript: string) => {
     if (!transcript || status !== 'connected' || isProcessing) return;
+
+    // Debounce: prevent processing if we just processed something
+    const now = Date.now();
+    if (now - lastProcessedRef.current < 2000) {
+      console.log('Debouncing voice input, too soon after last request');
+      return;
+    }
+    lastProcessedRef.current = now;
 
     // Add user message
     setMessages(prev => [...prev, {
