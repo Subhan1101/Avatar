@@ -402,7 +402,7 @@ export const AvatarVideoCall = () => {
             </div>
 
             {/* Call controls */}
-            <div className="absolute bottom-20 left-1/2 -translate-x-1/2 flex items-center gap-3">
+            <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3">
               {status === 'disconnected' ? (
                 <Button
                   variant="hero"
