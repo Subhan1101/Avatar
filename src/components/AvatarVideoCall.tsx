@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Mic, MicOff, Phone, Monitor, MessageSquare, Volume2, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Phone, Monitor, MessageSquare, Volume2, Loader2, AudioLines } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { HeyGenAvatarClient } from '@/utils/HeyGenClient';
@@ -21,9 +21,89 @@ export const AvatarVideoCall = () => {
   const [audioLevels, setAudioLevels] = useState([0.3, 0.5, 0.8, 0.4, 0.6]);
   const [isProcessing, setIsProcessing] = useState(false);
   
+  const [isListening, setIsListening] = useState(false);
+  
   const heygenRef = useRef<HeyGenAvatarClient | null>(null);
   const messageIdRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+
+  // Initialize Speech Recognition
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognitionAPI) {
+      const recognition = new SpeechRecognitionAPI();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        console.log('Voice input:', transcript);
+        if (transcript.trim()) {
+          handleVoiceInput(transcript.trim());
+        }
+        setIsListening(false);
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+        if (event.error !== 'no-speech') {
+          toast({
+            variant: 'destructive',
+            title: 'Voice Input Error',
+            description: 'Could not recognize speech. Please try again.'
+          });
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  const handleVoiceInput = useCallback(async (transcript: string) => {
+    if (!transcript || status !== 'connected' || isProcessing) return;
+
+    // Add user message
+    setMessages(prev => [...prev, {
+      id: ++messageIdRef.current,
+      sender: 'user',
+      text: transcript
+    }]);
+
+    // Get AI response and make avatar speak
+    await getAIResponse(transcript);
+  }, [status, isProcessing]);
+
+  const toggleVoiceInput = useCallback(() => {
+    if (!recognitionRef.current) {
+      toast({
+        variant: 'destructive',
+        title: 'Not Supported',
+        description: 'Voice input is not supported in this browser.'
+      });
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      try {
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch (error) {
+        console.error('Error starting speech recognition:', error);
+      }
+    }
+  }, [isListening, toast]);
 
   // Audio wave animation when speaking
   useEffect(() => {
@@ -362,24 +442,43 @@ export const AvatarVideoCall = () => {
             {/* Input area */}
             <div className="p-4 border-t border-border/50">
               <div className="flex items-center gap-2 bg-secondary rounded-xl px-4 py-3">
+                <Button
+                  size="icon"
+                  variant={isListening ? "destructive" : "ghost"}
+                  onClick={toggleVoiceInput}
+                  disabled={status !== 'connected' || isProcessing}
+                  className="shrink-0 h-8 w-8"
+                  title={isListening ? "Stop listening" : "Voice input"}
+                >
+                  {isListening ? (
+                    <AudioLines className="w-4 h-4 animate-pulse" />
+                  ) : (
+                    <Mic className="w-4 h-4" />
+                  )}
+                </Button>
                 <input
                   type="text"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && sendTextMessage()}
-                  placeholder={status === 'connected' ? "Type a message..." : "Connect to send messages"}
-                  disabled={status !== 'connected' || isProcessing}
+                  placeholder={isListening ? "Listening..." : status === 'connected' ? "Type or speak..." : "Connect to send messages"}
+                  disabled={status !== 'connected' || isProcessing || isListening}
                   className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
                 />
                 <Button
                   size="sm"
                   variant="hero"
                   onClick={sendTextMessage}
-                  disabled={status !== 'connected' || !inputText.trim() || isProcessing}
+                  disabled={status !== 'connected' || !inputText.trim() || isProcessing || isListening}
                 >
                   {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Send'}
                 </Button>
               </div>
+              {isListening && (
+                <p className="text-xs text-primary mt-2 text-center animate-pulse">
+                  🎤 Speak now... Click the mic to stop
+                </p>
+              )}
             </div>
           </div>
         </div>
