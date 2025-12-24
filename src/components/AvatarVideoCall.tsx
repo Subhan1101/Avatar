@@ -30,7 +30,7 @@ export const AvatarVideoCall = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  // Simulate audio wave animation when speaking
+  // Audio wave animation when speaking
   useEffect(() => {
     if (!isSpeaking) return;
     const interval = setInterval(() => {
@@ -38,6 +38,11 @@ export const AvatarVideoCall = () => {
     }, 150);
     return () => clearInterval(interval);
   }, [isSpeaking]);
+
+  // Handle mute toggle
+  useEffect(() => {
+    chatRef.current?.setMuted(isMuted);
+  }, [isMuted]);
 
   const handleTranscript = useCallback((text: string, role: 'user' | 'assistant') => {
     if (role === 'user') {
@@ -71,21 +76,12 @@ export const AvatarVideoCall = () => {
     if (event.type === 'response.created') {
       currentAssistantMessageRef.current = '';
     }
-    
-    // When we receive audio data from OpenAI, send it to Simli for lip-sync
-    if (event.type === 'response.audio.delta' && event.delta) {
-      try {
-        // Decode base64 audio and send to Simli
-        const binaryString = atob(event.delta);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        simliRef.current?.sendAudioData(bytes);
-      } catch (error) {
-        console.error('Error sending audio to Simli:', error);
-      }
-    }
+  }, []);
+
+  // Key function: Send OpenAI audio to Simli for lip-sync
+  const handleAudioData = useCallback((audioData: Uint8Array) => {
+    // Send audio data to Simli for lip-sync animation
+    simliRef.current?.sendAudioData(audioData);
   }, []);
 
   const startConversation = useCallback(async () => {
@@ -94,9 +90,10 @@ export const AvatarVideoCall = () => {
 
       // Initialize Simli avatar first
       if (videoRef.current && audioRef.current) {
+        console.log('Initializing Simli avatar...');
         simliRef.current = new SimliAvatarClient({
           onConnected: () => {
-            console.log('Simli avatar connected');
+            console.log('Simli avatar connected and ready for lip-sync');
           },
           onDisconnected: () => {
             console.log('Simli avatar disconnected');
@@ -114,18 +111,16 @@ export const AvatarVideoCall = () => {
         });
 
         await simliRef.current.init(videoRef.current, audioRef.current, SIMLI_FACE_ID);
+        console.log('Simli avatar initialized');
       }
 
-      // Initialize OpenAI Realtime for voice
+      // Initialize OpenAI Realtime with WebSocket (to capture audio data)
+      console.log('Initializing OpenAI Realtime...');
       chatRef.current = new RealtimeChat({
         onMessage: handleMessage,
-        onSpeakingChange: (speaking) => {
-          // Only use OpenAI speaking state if Simli isn't handling it
-          if (!simliRef.current) {
-            setIsSpeaking(speaking);
-          }
-        },
+        onSpeakingChange: setIsSpeaking,
         onTranscript: handleTranscript,
+        onAudioData: handleAudioData, // This sends audio to Simli for lip-sync
         onStatusChange: setStatus,
         onError: (error) => {
           console.error('Realtime error:', error);
@@ -141,7 +136,7 @@ export const AvatarVideoCall = () => {
 
       toast({
         title: 'Connected',
-        description: 'AI Support Agent is ready to help you'
+        description: 'AI Support Agent is ready with lip-sync!'
       });
     } catch (error) {
       console.error('Error starting conversation:', error);
@@ -152,7 +147,7 @@ export const AvatarVideoCall = () => {
         description: error instanceof Error ? error.message : 'Failed to start conversation'
       });
     }
-  }, [handleMessage, handleTranscript, toast]);
+  }, [handleMessage, handleTranscript, handleAudioData, toast]);
 
   const endConversation = useCallback(() => {
     chatRef.current?.disconnect();
@@ -235,23 +230,22 @@ export const AvatarVideoCall = () => {
 
             {/* Live Simli Avatar Video - Full body view */}
             <div className="relative z-10 flex items-center justify-center h-full">
-              {/* Video element for Simli avatar - full size, no circle crop */}
+              {/* Video element for Simli avatar - full size */}
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
-                muted={false}
                 className={`w-full h-full object-contain max-h-[550px] transition-all ${
-                  status === 'connected' ? 'opacity-100' : 'opacity-0'
+                  status === 'connected' ? 'opacity-100' : 'opacity-0 absolute'
                 }`}
               />
               
-              {/* Hidden audio element for Simli */}
+              {/* Audio element for Simli - this plays the lip-synced audio */}
               <audio ref={audioRef} autoPlay className="hidden" />
               
               {/* Placeholder when not connected */}
               {status !== 'connected' && (
-                <div className={`absolute inset-0 flex items-center justify-center transition-all ${
+                <div className={`flex items-center justify-center transition-all ${
                   status === 'connecting' ? 'animate-pulse' : ''
                 }`}>
                   {status === 'connecting' ? (
