@@ -3,43 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aria - AI Voice Assistant</title>
-    <meta name="description" content="Aria is your friendly AI IT Support Assistant powered by OpenAI's Realtime API">
+    <title>Aria - AI Avatar Agent</title>
+    <meta name="description" content="Aria - Live AI Avatar Agent with D-ID + OpenAI Realtime">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { font-family: 'Inter', sans-serif; }
         
         @keyframes pulse-ring {
-            0% { transform: scale(0.9); opacity: 0.8; }
-            50% { transform: scale(1.2); opacity: 0.4; }
-            100% { transform: scale(0.9); opacity: 0.8; }
+            0% { transform: scale(0.95); opacity: 0.7; }
+            50% { transform: scale(1.05); opacity: 0.3; }
+            100% { transform: scale(0.95); opacity: 0.7; }
         }
         
-        @keyframes pulse-ring-outer {
-            0% { transform: scale(0.9); opacity: 0.5; }
-            50% { transform: scale(1.4); opacity: 0; }
-            100% { transform: scale(0.9); opacity: 0.5; }
-        }
-        
-        .pulse-ring {
-            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        
-        .pulse-ring-outer {
-            animation: pulse-ring-outer 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-8px); }
-        }
-        
-        .float {
-            animation: float 4s ease-in-out infinite;
-        }
+        .pulse-ring { animation: pulse-ring 2s ease-in-out infinite; }
         
         @keyframes gradient-shift {
             0%, 100% { background-position: 0% 50%; }
@@ -58,104 +35,123 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        .scrollbar-thin::-webkit-scrollbar {
-            width: 6px;
+        #avatar-video {
+            transform: scaleX(-1);
+            object-fit: cover;
         }
         
-        .scrollbar-thin::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 3px;
-        }
-        
-        .scrollbar-thin::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 3px;
-        }
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
     </style>
 </head>
-<body class="gradient-bg min-h-screen text-white overflow-x-hidden">
-    <div class="container mx-auto px-4 py-8 max-w-3xl min-h-screen flex flex-col">
+<body class="gradient-bg min-h-screen text-white">
+    <div class="container mx-auto px-4 py-6 max-w-4xl min-h-screen flex flex-col">
         
         <!-- Header -->
-        <header class="text-center mb-6">
-            <h1 class="text-4xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent mb-2">
+        <header class="text-center mb-4">
+            <h1 class="text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
                 Aria
             </h1>
-            <p class="text-purple-300/80 text-sm">AI IT Support Assistant</p>
+            <p class="text-purple-300/70 text-sm">AI Avatar Agent</p>
         </header>
 
         <!-- Main Content -->
-        <main class="flex-1 flex flex-col items-center justify-center">
+        <main class="flex-1 flex flex-col lg:flex-row gap-6">
             
-            <!-- Avatar Container -->
-            <div class="relative mb-8">
-                <!-- Outer pulse ring -->
-                <div id="pulse-outer" class="absolute inset-[-20px] bg-gradient-to-r from-purple-500/30 to-pink-500/30 rounded-full pulse-ring-outer opacity-0 transition-opacity duration-300"></div>
-                
-                <!-- Inner pulse ring -->
-                <div id="pulse-inner" class="absolute inset-[-10px] bg-gradient-to-r from-purple-500/40 to-pink-500/40 rounded-full pulse-ring opacity-0 transition-opacity duration-300"></div>
-                
-                <!-- Avatar -->
-                <div id="avatar" class="relative w-36 h-36 bg-gradient-to-br from-purple-600 via-pink-500 to-purple-600 rounded-full flex items-center justify-center shadow-2xl shadow-purple-500/30 float">
-                    <div class="absolute inset-1 bg-gradient-to-br from-slate-900 to-slate-800 rounded-full"></div>
-                    <svg class="relative w-16 h-16 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-                    </svg>
+            <!-- Avatar Section -->
+            <div class="flex-1 flex flex-col items-center">
+                <!-- Avatar Container -->
+                <div class="relative w-full max-w-md aspect-square mb-4">
+                    <!-- Pulse rings (shown when speaking) -->
+                    <div id="pulse-outer" class="absolute inset-[-10px] bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-3xl pulse-ring opacity-0 transition-opacity"></div>
+                    
+                    <!-- Video container -->
+                    <div class="relative w-full h-full bg-slate-800/50 rounded-2xl overflow-hidden border border-purple-500/30">
+                        <!-- Avatar video -->
+                        <video id="avatar-video" class="w-full h-full" autoplay playsinline></video>
+                        
+                        <!-- Placeholder when not connected -->
+                        <div id="avatar-placeholder" class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
+                            <div class="text-center">
+                                <div class="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-purple-600 to-pink-600 rounded-full flex items-center justify-center">
+                                    <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                    </svg>
+                                </div>
+                                <p class="text-slate-400 text-sm">Click Start to connect</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status -->
+                <div id="status-badge" class="glass rounded-full px-4 py-2 mb-4">
+                    <div class="flex items-center gap-2">
+                        <span id="status-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+                        <span id="status-text" class="text-sm text-slate-300">Ready to connect</span>
+                    </div>
+                </div>
+
+                <!-- Control Buttons -->
+                <div class="flex gap-3">
+                    <button id="start-btn" onclick="startAvatarSession()" 
+                        class="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-full font-medium transition-all transform hover:scale-105 shadow-lg">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                            </svg>
+                            Start Avatar
+                        </span>
+                    </button>
+                    
+                    <button id="stop-btn" onclick="endAvatarSession()" 
+                        class="hidden px-6 py-3 bg-red-600/80 hover:bg-red-500 rounded-full font-medium transition-all">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <rect x="6" y="6" width="12" height="12" rx="2"/>
+                            </svg>
+                            End Call
+                        </span>
+                    </button>
                 </div>
             </div>
 
-            <!-- Status Badge -->
-            <div id="status-badge" class="glass rounded-full px-5 py-2.5 mb-8">
-                <div class="flex items-center gap-2">
-                    <span id="status-dot" class="w-2 h-2 rounded-full bg-slate-500 transition-colors duration-300"></span>
-                    <span id="status-text" class="text-sm text-slate-300">Click to start conversation</span>
+            <!-- Chat Section -->
+            <div class="flex-1 flex flex-col">
+                <!-- Chat Messages -->
+                <div id="chat-container" class="flex-1 glass rounded-2xl p-4 mb-4 min-h-[300px] max-h-[500px] overflow-y-auto scrollbar-thin">
+                    <div id="chat-messages" class="space-y-3">
+                        <div class="text-center text-slate-500 text-sm py-8">
+                            Start a conversation with Aria
+                        </div>
+                    </div>
                 </div>
-            </div>
 
-            <!-- Transcript Container -->
-            <div id="transcript-container" class="w-full glass rounded-2xl p-5 mb-8 max-h-[300px] overflow-y-auto scrollbar-thin hidden">
-                <div id="transcript" class="space-y-3"></div>
-            </div>
-
-            <!-- Control Buttons -->
-            <div class="flex gap-4">
-                <button id="start-btn" onclick="startConversation()" 
-                    class="group relative px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-full font-medium transition-all duration-300 transform hover:scale-105 shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50">
-                    <span class="flex items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-                        </svg>
-                        Start Conversation
-                    </span>
-                </button>
-                
-                <button id="stop-btn" onclick="endConversation()" 
-                    class="hidden px-8 py-4 bg-slate-700/80 hover:bg-slate-600/80 rounded-full font-medium transition-all duration-300 border border-slate-600">
-                    <span class="flex items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
-                        </svg>
-                        End Call
-                    </span>
-                </button>
-            </div>
-
-            <!-- Error Toast -->
-            <div id="error-toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 bg-red-500/90 backdrop-blur rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
-                <div class="flex items-center gap-2">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                    <span id="error-text">Error message</span>
+                <!-- Chat Input -->
+                <div class="glass rounded-2xl p-3">
+                    <div class="flex gap-2">
+                        <input 
+                            type="text" 
+                            id="chat-input" 
+                            placeholder="Type a message or speak..."
+                            class="flex-1 bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                            onkeypress="if(event.key==='Enter')sendMessage()"
+                        >
+                        <button onclick="sendMessage()" class="px-4 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl transition-colors">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         </main>
 
-        <!-- Footer -->
-        <footer class="text-center py-4 text-slate-500 text-xs">
-            Powered by OpenAI Realtime API
-        </footer>
+        <!-- Error Toast -->
+        <div id="error-toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 px-6 py-3 bg-red-500/90 backdrop-blur rounded-lg shadow-lg opacity-0 translate-y-4 transition-all pointer-events-none">
+            <span id="error-text">Error message</span>
+        </div>
     </div>
 
     <script>
@@ -165,13 +161,12 @@
         const API_BASE_URL = 'http://localhost:8000';
 
         // =============================================
-        // State Management
+        // State
         // =============================================
         let peerConnection = null;
-        let dataChannel = null;
-        let audioElement = null;
+        let streamId = null;
+        let sessionId = null;
         let isConnected = false;
-        let isSpeaking = false;
 
         // =============================================
         // DOM Elements
@@ -181,267 +176,215 @@
         const statusDot = document.getElementById('status-dot');
         const statusText = document.getElementById('status-text');
         const pulseOuter = document.getElementById('pulse-outer');
-        const pulseInner = document.getElementById('pulse-inner');
-        const transcriptContainer = document.getElementById('transcript-container');
-        const transcript = document.getElementById('transcript');
+        const avatarVideo = document.getElementById('avatar-video');
+        const avatarPlaceholder = document.getElementById('avatar-placeholder');
+        const chatMessages = document.getElementById('chat-messages');
+        const chatInput = document.getElementById('chat-input');
         const errorToast = document.getElementById('error-toast');
         const errorText = document.getElementById('error-text');
 
         // =============================================
         // UI Helpers
         // =============================================
-        function updateStatus(status, color) {
-            statusText.textContent = status;
-            statusDot.className = `w-2 h-2 rounded-full transition-colors duration-300`;
-            
-            switch(color) {
-                case 'green':
-                    statusDot.classList.add('bg-green-500');
-                    break;
-                case 'yellow':
-                    statusDot.classList.add('bg-yellow-500');
-                    break;
-                case 'red':
-                    statusDot.classList.add('bg-red-500');
-                    break;
-                default:
-                    statusDot.classList.add('bg-slate-500');
-            }
+        function updateStatus(text, color) {
+            statusText.textContent = text;
+            statusDot.className = 'w-2 h-2 rounded-full';
+            statusDot.classList.add(`bg-${color}-500`);
         }
 
         function showError(message) {
             errorText.textContent = message;
-            errorToast.classList.remove('translate-y-20', 'opacity-0');
-            errorToast.classList.add('translate-y-0', 'opacity-100');
-            
+            errorToast.classList.remove('opacity-0', 'translate-y-4');
             setTimeout(() => {
-                errorToast.classList.add('translate-y-20', 'opacity-0');
-                errorToast.classList.remove('translate-y-0', 'opacity-100');
+                errorToast.classList.add('opacity-0', 'translate-y-4');
             }, 5000);
         }
 
         function setSpeaking(speaking) {
-            isSpeaking = speaking;
             if (speaking) {
                 pulseOuter.classList.remove('opacity-0');
                 pulseOuter.classList.add('opacity-100');
-                pulseInner.classList.remove('opacity-0');
-                pulseInner.classList.add('opacity-100');
             } else {
                 pulseOuter.classList.add('opacity-0');
                 pulseOuter.classList.remove('opacity-100');
-                pulseInner.classList.add('opacity-0');
-                pulseInner.classList.remove('opacity-100');
             }
         }
 
-        function addTranscript(role, text) {
-            if (!text || text.trim() === '') return;
-            
-            transcriptContainer.classList.remove('hidden');
-            
-            const messageDiv = document.createElement('div');
-            messageDiv.className = role === 'user' 
+        function addMessage(role, content) {
+            // Clear placeholder
+            const placeholder = chatMessages.querySelector('.text-center');
+            if (placeholder) placeholder.remove();
+
+            const div = document.createElement('div');
+            div.className = role === 'user' 
                 ? 'bg-purple-600/20 border border-purple-500/30 rounded-xl p-3 ml-8' 
                 : 'bg-slate-700/30 border border-slate-600/30 rounded-xl p-3 mr-8';
             
-            messageDiv.innerHTML = `
-                <div class="flex items-center gap-2 mb-1">
-                    <span class="text-xs font-medium ${role === 'user' ? 'text-purple-400' : 'text-pink-400'}">
-                        ${role === 'user' ? 'You' : 'Aria'}
-                    </span>
-                </div>
-                <p class="text-sm text-slate-200 leading-relaxed">${text}</p>
+            div.innerHTML = `
+                <span class="text-xs font-medium ${role === 'user' ? 'text-purple-400' : 'text-pink-400'}">
+                    ${role === 'user' ? 'You' : 'Aria'}
+                </span>
+                <p class="text-sm text-slate-200 mt-1">${content}</p>
             `;
             
-            transcript.appendChild(messageDiv);
-            transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
         // =============================================
-        // WebRTC Connection
+        // D-ID API Helpers
         // =============================================
-        async function startConversation() {
+        async function callDIDAPI(action, data = {}) {
+            const response = await fetch(`${API_BASE_URL}/api/did-stream`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, ...data })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'API request failed');
+            }
+            
+            return response.json();
+        }
+
+        // =============================================
+        // Avatar Session
+        // =============================================
+        async function startAvatarSession() {
             try {
                 startBtn.disabled = true;
                 updateStatus('Connecting...', 'yellow');
 
-                // Step 1: Get ephemeral token from backend
-                console.log('Requesting session token...');
-                const tokenResponse = await fetch(`${API_BASE_URL}/api/realtime-session`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                });
+                // Step 1: Create D-ID stream
+                console.log('Creating D-ID stream...');
+                const createResult = await callDIDAPI('create-stream');
+                
+                streamId = createResult.id;
+                sessionId = createResult.session_id;
+                const offer = createResult.offer;
+                
+                console.log('Stream created:', streamId);
 
-                if (!tokenResponse.ok) {
-                    const error = await tokenResponse.json();
-                    throw new Error(error.detail || 'Failed to get session token');
-                }
-
-                const sessionData = await tokenResponse.json();
-                const ephemeralKey = sessionData.client_secret?.value;
-
-                if (!ephemeralKey) {
-                    throw new Error('No ephemeral key received from server');
-                }
-                console.log('Session token received');
-
-                // Step 2: Create audio element for playback
-                audioElement = document.createElement('audio');
-                audioElement.autoplay = true;
-
-                // Step 3: Create RTCPeerConnection
+                // Step 2: Create peer connection
                 peerConnection = new RTCPeerConnection({
-                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' }
+                    ]
                 });
 
-                // Step 4: Handle remote audio track
+                // Step 3: Handle remote video track
                 peerConnection.ontrack = (event) => {
                     console.log('Received remote track');
-                    audioElement.srcObject = event.streams[0];
+                    avatarVideo.srcObject = event.streams[0];
+                    avatarPlaceholder.classList.add('hidden');
                 };
 
-                // Step 5: Get user's microphone and add to connection
-                const mediaStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                        sampleRate: 24000
+                // Step 4: Handle ICE candidates
+                peerConnection.onicecandidate = async (event) => {
+                    if (event.candidate) {
+                        console.log('Sending ICE candidate');
+                        await callDIDAPI('submit-ice', {
+                            stream_id: streamId,
+                            session_id: sessionId,
+                            candidate: event.candidate.toJSON()
+                        });
                     }
-                });
-                
-                mediaStream.getTracks().forEach(track => {
-                    peerConnection.addTrack(track, mediaStream);
-                });
-                console.log('Microphone connected');
-
-                // Step 6: Create data channel for events
-                dataChannel = peerConnection.createDataChannel('oai-events');
-                
-                dataChannel.onopen = () => {
-                    console.log('Data channel opened');
-                    isConnected = true;
-                    updateStatus('Connected - Speak now!', 'green');
-                    startBtn.classList.add('hidden');
-                    stopBtn.classList.remove('hidden');
-                    startBtn.disabled = false;
                 };
 
-                dataChannel.onclose = () => {
-                    console.log('Data channel closed');
-                };
+                // Step 5: Set remote description (offer from D-ID)
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                
+                // Step 6: Create and set local answer
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
 
-                dataChannel.onmessage = handleDataChannelMessage;
-
-                // Step 7: Create offer and set local description
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-
-                // Step 8: Send offer to OpenAI Realtime API
-                console.log('Connecting to OpenAI Realtime API...');
-                const baseUrl = 'https://api.openai.com/v1/realtime';
-                const model = 'gpt-4o-realtime-preview-2024-12-17';
-
-                const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
-                    method: 'POST',
-                    body: offer.sdp,
-                    headers: {
-                        'Authorization': `Bearer ${ephemeralKey}`,
-                        'Content-Type': 'application/sdp'
-                    }
+                // Step 7: Send answer to D-ID
+                await callDIDAPI('submit-sdp', {
+                    stream_id: streamId,
+                    session_id: sessionId,
+                    answer: answer
                 });
 
-                if (!sdpResponse.ok) {
-                    throw new Error(`OpenAI connection failed: ${sdpResponse.status}`);
-                }
+                // Success!
+                isConnected = true;
+                updateStatus('Connected - Speak or type!', 'green');
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+                startBtn.disabled = false;
 
-                // Step 9: Set remote description
-                const answerSdp = await sdpResponse.text();
-                await peerConnection.setRemoteDescription({
-                    type: 'answer',
-                    sdp: answerSdp
-                });
-
-                console.log('WebRTC connection established!');
+                console.log('Avatar session started successfully!');
 
             } catch (error) {
                 console.error('Connection error:', error);
                 showError(error.message);
                 updateStatus('Connection failed', 'red');
                 startBtn.disabled = false;
-                startBtn.classList.remove('hidden');
-                stopBtn.classList.add('hidden');
                 cleanup();
             }
         }
 
-        function handleDataChannelMessage(event) {
+        async function endAvatarSession() {
             try {
-                const message = JSON.parse(event.data);
-                console.log('Event:', message.type);
-
-                switch (message.type) {
-                    case 'session.created':
-                        console.log('Session created');
-                        break;
-
-                    case 'response.audio.delta':
-                        setSpeaking(true);
-                        break;
-
-                    case 'response.audio.done':
-                        setSpeaking(false);
-                        break;
-
-                    case 'response.audio_transcript.done':
-                        if (message.transcript) {
-                            addTranscript('assistant', message.transcript);
-                        }
-                        break;
-
-                    case 'conversation.item.input_audio_transcription.completed':
-                        if (message.transcript) {
-                            addTranscript('user', message.transcript);
-                        }
-                        break;
-
-                    case 'error':
-                        console.error('API Error:', message.error);
-                        showError(message.error?.message || 'An error occurred');
-                        break;
+                if (streamId) {
+                    await callDIDAPI('close-stream', { stream_id: streamId });
                 }
             } catch (e) {
-                console.error('Error parsing message:', e);
+                console.log('Error closing stream:', e);
             }
-        }
-
-        function endConversation() {
+            
             cleanup();
             updateStatus('Disconnected', 'slate');
             startBtn.classList.remove('hidden');
             stopBtn.classList.add('hidden');
-            setSpeaking(false);
+            avatarPlaceholder.classList.remove('hidden');
         }
 
         function cleanup() {
-            if (dataChannel) {
-                dataChannel.close();
-                dataChannel = null;
-            }
-            
             if (peerConnection) {
                 peerConnection.close();
                 peerConnection = null;
             }
-            
-            if (audioElement) {
-                audioElement.srcObject = null;
-                audioElement = null;
-            }
-            
+            streamId = null;
+            sessionId = null;
             isConnected = false;
+            avatarVideo.srcObject = null;
+            setSpeaking(false);
+        }
+
+        // =============================================
+        // Chat
+        // =============================================
+        async function sendMessage() {
+            const message = chatInput.value.trim();
+            if (!message) return;
+            
+            if (!isConnected) {
+                showError('Please start the avatar session first');
+                return;
+            }
+
+            chatInput.value = '';
+            addMessage('user', message);
+            setSpeaking(true);
+
+            try {
+                // Send message to D-ID agent
+                await callDIDAPI('speak', {
+                    stream_id: streamId,
+                    session_id: sessionId,
+                    text: message
+                });
+                
+                // The avatar will respond through the video stream
+                // We'll get the response text from D-ID's response
+                
+            } catch (error) {
+                console.error('Error sending message:', error);
+                showError('Failed to send message');
+                setSpeaking(false);
+            }
         }
 
         // Cleanup on page unload

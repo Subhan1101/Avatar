@@ -1,194 +1,108 @@
-# 🎙️ Aria - Realtime Voice Agent (Local Deployment)
+# 🤖 Aria - Realtime AI Avatar Agent (Local Deployment)
 
-A complete local deployment of the Aria AI Voice Assistant using FastAPI and OpenAI's Realtime API with WebRTC.
+Complete local deployment with **D-ID Avatar** + **OpenAI Realtime Voice** - exactly like your Lovable project!
 
 ## 📁 Project Structure
 
 ```
 local-deployment/
 ├── backend/
-│   ├── main.py              # FastAPI server with all API endpoints
+│   ├── main.py              # FastAPI server (D-ID + OpenAI)
 │   ├── requirements.txt     # Python dependencies
-│   └── .env.example         # Environment variables template
+│   └── .env.example         # API keys template
 ├── frontend/
-│   └── index.html           # Complete standalone web application
+│   └── index.html           # Full avatar UI
+├── run.bat                  # Windows launcher
+├── run.sh                   # macOS/Linux launcher
 └── README.md                # This file
 ```
 
-## 🔧 Prerequisites
+## 🔑 Required API Keys
 
-Before you begin, make sure you have:
+1. **OpenAI API Key** - For voice/chat
+   - Get at: https://platform.openai.com/api-keys
 
-1. **Python 3.9 or higher** installed
-   - Check with: `python --version`
-   - Download: https://www.python.org/downloads/
+2. **D-ID API Key** - For avatar video
+   - Get at: https://studio.d-id.com/account-settings
+   - Use the base64 encoded version
 
-2. **OpenAI API Key** with Realtime API access
-   - Get one at: https://platform.openai.com/api-keys
-   - Note: Realtime API requires a paid account
+3. **D-ID Agent ID** - Your custom avatar
+   - Create at: https://studio.d-id.com/agents
+   - Default: `v2_agt_8rjurqlQ`
 
-3. **A modern web browser** (Chrome, Firefox, or Edge recommended)
+## 🚀 Quick Start
 
-## 🚀 Quick Start Guide
-
-### Step 1: Open in VS Code
-
-Open the `local-deployment` folder in Visual Studio Code.
-
-### Step 2: Set Up the Backend
-
-Open a terminal in VS Code (Terminal → New Terminal) and run:
+### Step 1: Setup Backend
 
 ```bash
-# Navigate to backend folder
-cd backend
+cd local-deployment/backend
 
-# Create a virtual environment
+# Create virtual environment
 python -m venv venv
 
-# Activate the virtual environment
-# On Windows (Command Prompt):
-venv\Scripts\activate
-# On Windows (PowerShell):
-.\venv\Scripts\Activate.ps1
-# On macOS/Linux:
-source venv/bin/activate
+# Activate it
+# Windows: venv\Scripts\activate
+# macOS/Linux: source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Create your .env file
+# Create .env file
 cp .env.example .env
 ```
 
-### Step 3: Add Your OpenAI API Key
+### Step 2: Add Your API Keys
 
-Edit the `.env` file and replace the placeholder with your actual API key:
-
+Edit `backend/.env`:
 ```
-OPENAI_API_KEY=sk-your-actual-openai-api-key-here
+OPENAI_API_KEY=sk-your-key-here
+DID_API_KEY=your-did-key-here
+DID_AGENT_ID=v2_agt_8rjurqlQ
 ```
 
-### Step 4: Start the Backend Server
+### Step 3: Run
 
 ```bash
-# Make sure you're in the backend folder with venv activated
 python main.py
 ```
 
-You should see:
-```
-==================================================
-🚀 Starting Aria - Realtime Voice Agent
-==================================================
-📡 API: http://localhost:8000
-🎨 App: http://localhost:8000/app
-📖 Docs: http://localhost:8000/docs
-==================================================
-```
+### Step 4: Open App
 
-### Step 5: Open the App
-
-**Option A** - Use the built-in route:
-- Open http://localhost:8000/app in your browser
-
-**Option B** - Open the HTML file directly:
-- Open `frontend/index.html` in your browser
-
-### Step 6: Start Talking!
-
-1. Click **"Start Conversation"**
-2. Allow microphone access when prompted
-3. Start speaking to Aria!
+Go to **http://localhost:8000/app**
 
 ## 📡 API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Health check |
-| `/api/health` | GET | Detailed health status |
-| `/api/realtime-session` | POST | Get ephemeral token for WebRTC |
-| `/api/ai-chat` | POST | Text chat fallback |
-| `/docs` | GET | Interactive API documentation |
-| `/app` | GET | Serve frontend application |
+| Endpoint | Description |
+|----------|-------------|
+| `GET /` | Health check |
+| `POST /api/realtime-session` | OpenAI voice token |
+| `POST /api/did-stream` | D-ID avatar control |
+| `POST /api/ai-chat` | Text chat fallback |
+| `GET /docs` | API documentation |
+| `GET /app` | Frontend app |
 
-## 🎨 Customization
+## 🎨 Features
 
-### Change Aria's Voice
-
-Available voices: `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`
-
-Edit `backend/main.py` and change the `voice` parameter in the `create_realtime_session` function.
-
-### Modify Aria's Personality
-
-Edit the `default_instructions` string in `backend/main.py` to customize how Aria behaves and responds.
-
-### Change the UI Theme
-
-The frontend uses Tailwind CSS. Edit `frontend/index.html` to customize colors, layout, and styling.
+- ✅ **Live Video Avatar** - D-ID animated avatar
+- ✅ **Real-time Voice** - OpenAI Realtime API
+- ✅ **Text Chat** - Type messages to avatar
+- ✅ **Beautiful UI** - Tailwind CSS styling
+- ✅ **WebRTC** - Low-latency streaming
 
 ## 🐛 Troubleshooting
 
-### "OPENAI_API_KEY is not configured"
+### "DID_API_KEY not configured"
+Add your D-ID API key to `.env` file
 
-Make sure you:
-1. Created the `.env` file in the `backend` folder
-2. Added your actual OpenAI API key
-3. Restarted the server after adding the key
+### Avatar not appearing
+- Check D-ID API key is correct
+- Verify Agent ID exists in your D-ID account
+- Check browser console for errors
 
-### "Failed to get session token"
-
-- Check that the FastAPI server is running on port 8000
-- Check the terminal for error messages
-- Verify your OpenAI API key has Realtime API access
-
-### "Microphone access denied"
-
-- Click the lock/camera icon in your browser's address bar
+### No audio
 - Allow microphone permissions
-- Refresh the page
-
-### No audio output
-
-- Check your speaker volume and settings
-- Make sure no other app is using the audio output
-- Try a different browser
-
-### WebRTC connection fails
-
-- Make sure you're using HTTPS or localhost
-- Check if a firewall is blocking WebRTC
-- Try disabling VPN if you're using one
-
-## 🏗️ Architecture
-
-```
-┌──────────────────┐        ┌──────────────────┐        ┌──────────────────┐
-│                  │        │                  │        │                  │
-│     Browser      │───────▶│     FastAPI      │───────▶│   OpenAI API     │
-│   (Frontend)     │  HTTP  │    (Backend)     │  HTTP  │                  │
-│                  │◀───────│                  │◀───────│                  │
-└────────┬─────────┘        └──────────────────┘        └────────┬─────────┘
-         │                                                        │
-         │              WebRTC Audio Stream (Direct)              │
-         └────────────────────────────────────────────────────────┘
-```
-
-**Flow:**
-1. Frontend requests an ephemeral token from FastAPI
-2. FastAPI calls OpenAI to create a session
-3. Frontend uses the token to establish WebRTC connection
-4. Audio streams directly between browser and OpenAI
+- Check speaker volume
 
 ## 📄 License
 
-MIT License - Feel free to use and modify!
-
-## 🆘 Need Help?
-
-If you run into issues:
-1. Check the browser console (F12 → Console tab)
-2. Check the FastAPI terminal for error messages
-3. Verify all prerequisites are installed
-4. Make sure your OpenAI API key is valid and has credits
+MIT License
