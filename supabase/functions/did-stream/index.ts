@@ -18,7 +18,9 @@ serve(async (req) => {
       throw new Error('DID_API_KEY is not configured');
     }
 
-    const { action, agentId, streamId, sessionId, chatId, message, text } = await req.json();
+    // Parse body ONCE at the top
+    const body = await req.json();
+    const { action, agentId, streamId, sessionId, text, answer, candidate, sdpMid, sdpMLineIndex } = body;
     console.log('D-ID action:', action);
 
     const authHeader = `Basic ${DID_API_KEY}`;
@@ -56,9 +58,6 @@ serve(async (req) => {
     if (action === 'submit-sdp') {
       console.log('Submitting SDP answer for stream:', streamId);
       
-      const { answer } = await req.json();
-      const body = await req.json();
-      
       const response = await fetch(`${DID_API_URL}/agents/${agentId}/streams/${streamId}/sdp`, {
         method: 'POST',
         headers: {
@@ -66,7 +65,7 @@ serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          answer: body.answer,
+          answer: answer,
           session_id: sessionId,
         }),
       });
@@ -84,13 +83,11 @@ serve(async (req) => {
 
     // Submit ICE candidate
     if (action === 'submit-ice') {
-      const { candidate, sdpMid, sdpMLineIndex } = await req.json();
-      
-      const body: Record<string, unknown> = { session_id: sessionId };
+      const iceBody: Record<string, unknown> = { session_id: sessionId };
       if (candidate) {
-        body.candidate = candidate;
-        body.sdpMid = sdpMid;
-        body.sdpMLineIndex = sdpMLineIndex;
+        iceBody.candidate = candidate;
+        iceBody.sdpMid = sdpMid;
+        iceBody.sdpMLineIndex = sdpMLineIndex;
       }
 
       const response = await fetch(`${DID_API_URL}/agents/${agentId}/streams/${streamId}/ice`, {
@@ -99,7 +96,7 @@ serve(async (req) => {
           'Authorization': authHeader,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(iceBody),
       });
 
       if (!response.ok) {
@@ -113,65 +110,7 @@ serve(async (req) => {
       });
     }
 
-    // Create a chat session
-    if (action === 'create-chat') {
-      console.log('Creating chat for agent:', agentId);
-      
-      const response = await fetch(`${DID_API_URL}/agents/${agentId}/chat`, {
-        method: 'POST',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({}),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('D-ID create chat error:', response.status, errorText);
-        throw new Error(`Failed to create chat: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('Chat created:', data.id);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Send message to chat
-    if (action === 'send-message') {
-      console.log('Sending message to chat:', chatId);
-      
-      const response = await fetch(`${DID_API_URL}/agents/${agentId}/chat/${chatId}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          streamId,
-          sessionId,
-          messages: [{
-            role: 'user',
-            content: message,
-            created_at: new Date().toLocaleString(),
-          }],
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('D-ID send message error:', response.status, errorText);
-        throw new Error(`Failed to send message: ${response.status}`);
-      }
-
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Speak - make avatar say specific text
+    // Speak - make avatar say specific text (uses our own AI for responses)
     if (action === 'speak') {
       console.log('Making avatar speak:', text?.substring(0, 50));
       
@@ -205,7 +144,7 @@ serve(async (req) => {
     if (action === 'close-stream') {
       console.log('Closing stream:', streamId);
       
-      const response = await fetch(`${DID_API_URL}/agents/${agentId}/streams/${streamId}`, {
+      await fetch(`${DID_API_URL}/agents/${agentId}/streams/${streamId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': authHeader,
