@@ -3,7 +3,7 @@ import { Mic, MicOff, Phone, Monitor, MessageSquare, Volume2, Loader2 } from 'lu
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { RealtimeChat, RealtimeEvent } from '@/utils/RealtimeAudio';
-import avatarImg from '@/assets/avatar.png';
+import { SimliAvatarClient } from '@/utils/SimliClient';
 
 interface Message {
   id: number;
@@ -19,9 +19,14 @@ export const AvatarVideoCall = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [audioLevels, setAudioLevels] = useState([0.3, 0.5, 0.8, 0.4, 0.6]);
+  
   const chatRef = useRef<RealtimeChat | null>(null);
+  const simliRef = useRef<SimliAvatarClient | null>(null);
   const messageIdRef = useRef(0);
   const currentAssistantMessageRef = useRef<string>('');
+  
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   // Simulate audio wave animation when speaking
   useEffect(() => {
@@ -34,26 +39,22 @@ export const AvatarVideoCall = () => {
 
   const handleTranscript = useCallback((text: string, role: 'user' | 'assistant') => {
     if (role === 'user') {
-      // Add completed user message
       setMessages(prev => [...prev, {
         id: ++messageIdRef.current,
         sender: 'user',
         text
       }]);
     } else {
-      // For assistant, accumulate the transcript
       currentAssistantMessageRef.current += text;
       setMessages(prev => {
         const lastMsg = prev[prev.length - 1];
         if (lastMsg?.sender === 'agent') {
-          // Update last assistant message
           return prev.map((m, i) =>
             i === prev.length - 1
               ? { ...m, text: currentAssistantMessageRef.current }
               : m
           );
         } else {
-          // Create new assistant message
           return [...prev, {
             id: ++messageIdRef.current,
             sender: 'agent',
@@ -65,7 +66,6 @@ export const AvatarVideoCall = () => {
   }, []);
 
   const handleMessage = useCallback((event: RealtimeEvent) => {
-    // Reset assistant message accumulator when a new response starts
     if (event.type === 'response.created') {
       currentAssistantMessageRef.current = '';
     }
@@ -74,7 +74,32 @@ export const AvatarVideoCall = () => {
   const startConversation = useCallback(async () => {
     try {
       setStatus('connecting');
-      
+
+      // Initialize Simli avatar first
+      if (videoRef.current && audioRef.current) {
+        simliRef.current = new SimliAvatarClient({
+          onConnected: () => {
+            console.log('Simli avatar connected');
+          },
+          onDisconnected: () => {
+            console.log('Simli avatar disconnected');
+          },
+          onFailed: (error) => {
+            console.error('Simli avatar failed:', error);
+            toast({
+              variant: 'destructive',
+              title: 'Avatar Error',
+              description: error.message || 'Failed to initialize avatar'
+            });
+          },
+          onSpeaking: () => setIsSpeaking(true),
+          onSilent: () => setIsSpeaking(false),
+        });
+
+        await simliRef.current.init(videoRef.current, audioRef.current);
+      }
+
+      // Initialize OpenAI Realtime for voice
       chatRef.current = new RealtimeChat({
         onMessage: handleMessage,
         onSpeakingChange: setIsSpeaking,
@@ -91,7 +116,7 @@ export const AvatarVideoCall = () => {
       });
 
       await chatRef.current.init();
-      
+
       toast({
         title: 'Connected',
         description: 'AI Support Agent is ready to help you'
@@ -99,12 +124,19 @@ export const AvatarVideoCall = () => {
     } catch (error) {
       console.error('Error starting conversation:', error);
       setStatus('disconnected');
+      toast({
+        variant: 'destructive',
+        title: 'Connection Failed',
+        description: error instanceof Error ? error.message : 'Failed to start conversation'
+      });
     }
   }, [handleMessage, handleTranscript, toast]);
 
   const endConversation = useCallback(() => {
     chatRef.current?.disconnect();
     chatRef.current = null;
+    simliRef.current?.disconnect();
+    simliRef.current = null;
     setStatus('disconnected');
     setIsSpeaking(false);
     toast({
@@ -137,6 +169,7 @@ export const AvatarVideoCall = () => {
   useEffect(() => {
     return () => {
       chatRef.current?.disconnect();
+      simliRef.current?.disconnect();
     };
   }, []);
 
@@ -173,24 +206,49 @@ export const AvatarVideoCall = () => {
         </div>
 
         <div className="flex flex-col lg:flex-row">
-          {/* Avatar video section */}
+          {/* Avatar video section - NOW WITH LIVE VIDEO */}
           <div className="flex-1 relative bg-gradient-dark min-h-[400px] lg:min-h-[500px]">
             {/* Glow effect behind avatar */}
             <div className="absolute inset-0 bg-gradient-glow" />
 
-            {/* Avatar image */}
+            {/* Live Simli Avatar Video */}
             <div className="relative z-10 flex items-center justify-center h-full p-8">
               <div className="relative">
                 <div className={`absolute -inset-4 rounded-full blur-2xl transition-opacity ${
                   isSpeaking ? 'bg-primary/30 opacity-100' : 'bg-primary/20 opacity-50'
                 }`} />
-                <img
-                  src={avatarImg}
-                  alt="AI Support Avatar"
+                
+                {/* Video element for Simli avatar */}
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
                   className={`relative w-64 h-64 lg:w-80 lg:h-80 rounded-full object-cover transition-all ${
                     isSpeaking ? 'shadow-glow' : 'shadow-card'
-                  }`}
+                  } ${status === 'connected' ? 'block' : 'hidden'}`}
                 />
+                
+                {/* Hidden audio element for Simli */}
+                <audio ref={audioRef} autoPlay className="hidden" />
+                
+                {/* Placeholder when not connected */}
+                {status !== 'connected' && (
+                  <div className={`relative w-64 h-64 lg:w-80 lg:h-80 rounded-full bg-secondary flex items-center justify-center transition-all ${
+                    status === 'connecting' ? 'animate-pulse' : ''
+                  }`}>
+                    {status === 'connecting' ? (
+                      <Loader2 className="w-16 h-16 text-primary animate-spin" />
+                    ) : (
+                      <div className="text-center">
+                        <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-primary flex items-center justify-center">
+                          <Phone className="w-12 h-12 text-primary-foreground" />
+                        </div>
+                        <p className="text-muted-foreground text-sm">Click to start call</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Speaking indicator */}
                 {status === 'connected' && (
                   <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-card/90 backdrop-blur px-3 py-1.5 rounded-full border border-border/50">
