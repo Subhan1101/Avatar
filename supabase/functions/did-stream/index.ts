@@ -65,7 +65,10 @@ serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          answer: answer,
+          answer: {
+            type: 'answer',
+            sdp: answer,
+          },
           session_id: sessionId,
         }),
       });
