@@ -19,7 +19,7 @@ export const Footer = () => {
           </div>
 
           <div className="text-sm text-muted-foreground">
-            Built with LiveKit + Beyond Presence
+            Built with OpenAI GPT-4o Realtime API
           </div>
         </div>
       </div>

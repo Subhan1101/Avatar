@@ -22,9 +22,6 @@ export const Header = () => {
           <a href="#how-it-works" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
             How It Works
           </a>
-          <a href="#docs" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Docs
-          </a>
         </nav>
 
         <div className="flex items-center gap-3">
@@ -34,8 +31,8 @@ export const Header = () => {
           <Button variant="ghost" size="iconSm">
             <Twitter className="w-4 h-4" />
           </Button>
-          <Button variant="hero" size="sm">
-            Get Started
+          <Button variant="hero" size="sm" onClick={() => document.getElementById('demo')?.scrollIntoView({ behavior: 'smooth' })}>
+            Try Demo
           </Button>
         </div>
       </div>

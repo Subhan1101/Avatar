@@ -3,6 +3,10 @@ import { Button } from '@/components/ui/button';
 import heroBg from '@/assets/hero-bg.jpg';
 
 export const Hero = () => {
+  const scrollToDemo = () => {
+    document.getElementById('demo')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
       {/* Background */}
@@ -30,7 +34,7 @@ export const Hero = () => {
         {/* Badge */}
         <div className="inline-flex items-center gap-2 glass rounded-full px-4 py-2 mb-8 animate-fade-in-up">
           <Sparkles className="w-4 h-4 text-primary" />
-          <span className="text-sm text-muted-foreground">Powered by LiveKit + Beyond Presence</span>
+          <span className="text-sm text-muted-foreground">Powered by OpenAI GPT-4o Realtime + Whisper</span>
         </div>
 
         {/* Heading */}
@@ -42,15 +46,15 @@ export const Hero = () => {
 
         {/* Subtitle */}
         <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 animate-fade-in-up animation-delay-200">
-          Your next-gen virtual support assistant: it sees your screen, unblocks users,
-          and emails support ticket info — all with realistic voice, motion, and feedback cues.
+          Your next-gen virtual support assistant with real-time voice conversation.
+          Speak naturally, get instant help with IT issues — powered by GPT-4o.
         </p>
 
         {/* CTA Buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-fade-in-up animation-delay-300">
-          <Button variant="hero" size="xl">
+          <Button variant="hero" size="xl" onClick={scrollToDemo}>
             <Bot className="w-5 h-5" />
-            Start Demo Session
+            Try Live Demo
           </Button>
           <Button variant="outline" size="xl">
             View Documentation
@@ -60,23 +64,23 @@ export const Hero = () => {
         {/* Stats */}
         <div className="flex flex-wrap items-center justify-center gap-8 mt-16 animate-fade-in-up animation-delay-400">
           <div className="text-center">
-            <div className="text-3xl font-bold text-gradient">&lt;100ms</div>
-            <div className="text-sm text-muted-foreground mt-1">Response Time</div>
+            <div className="text-3xl font-bold text-gradient">&lt;300ms</div>
+            <div className="text-sm text-muted-foreground mt-1">Latency</div>
           </div>
           <div className="w-px h-12 bg-border hidden sm:block" />
           <div className="text-center">
-            <div className="text-3xl font-bold text-foreground">24/7</div>
-            <div className="text-sm text-muted-foreground mt-1">Availability</div>
+            <div className="text-3xl font-bold text-foreground">GPT-4o</div>
+            <div className="text-sm text-muted-foreground mt-1">Realtime API</div>
           </div>
           <div className="w-px h-12 bg-border hidden sm:block" />
           <div className="text-center">
-            <div className="text-3xl font-bold text-foreground">95%</div>
-            <div className="text-sm text-muted-foreground mt-1">Resolution Rate</div>
+            <div className="text-3xl font-bold text-foreground">Whisper</div>
+            <div className="text-sm text-muted-foreground mt-1">Transcription</div>
           </div>
           <div className="w-px h-12 bg-border hidden sm:block" />
           <div className="text-center">
-            <div className="text-3xl font-bold text-foreground">50+</div>
-            <div className="text-sm text-muted-foreground mt-1">Languages</div>
+            <div className="text-3xl font-bold text-foreground">WebRTC</div>
+            <div className="text-sm text-muted-foreground mt-1">Real-time Audio</div>
           </div>
         </div>
       </div>
