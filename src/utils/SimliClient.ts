@@ -22,7 +22,7 @@ export class SimliAvatarClient {
   async init(
     videoRef: HTMLVideoElement,
     audioRef: HTMLAudioElement,
-    faceId: string = "tmp9i8bbq7c"
+    faceId: string = "cace3ef7-a4c4-425d-a8cf-a5358eb0c427"
   ) {
     this.videoRef = videoRef;
     this.audioRef = audioRef;

@@ -11,6 +11,8 @@ interface Message {
   text: string;
 }
 
+const SIMLI_FACE_ID = "cace3ef7-a4c4-425d-a8cf-a5358eb0c427";
+
 export const AvatarVideoCall = () => {
   const { toast } = useToast();
   const [isMuted, setIsMuted] = useState(false);
@@ -69,6 +71,21 @@ export const AvatarVideoCall = () => {
     if (event.type === 'response.created') {
       currentAssistantMessageRef.current = '';
     }
+    
+    // When we receive audio data from OpenAI, send it to Simli for lip-sync
+    if (event.type === 'response.audio.delta' && event.delta) {
+      try {
+        // Decode base64 audio and send to Simli
+        const binaryString = atob(event.delta);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        simliRef.current?.sendAudioData(bytes);
+      } catch (error) {
+        console.error('Error sending audio to Simli:', error);
+      }
+    }
   }, []);
 
   const startConversation = useCallback(async () => {
@@ -96,13 +113,18 @@ export const AvatarVideoCall = () => {
           onSilent: () => setIsSpeaking(false),
         });
 
-        await simliRef.current.init(videoRef.current, audioRef.current);
+        await simliRef.current.init(videoRef.current, audioRef.current, SIMLI_FACE_ID);
       }
 
       // Initialize OpenAI Realtime for voice
       chatRef.current = new RealtimeChat({
         onMessage: handleMessage,
-        onSpeakingChange: setIsSpeaking,
+        onSpeakingChange: (speaking) => {
+          // Only use OpenAI speaking state if Simli isn't handling it
+          if (!simliRef.current) {
+            setIsSpeaking(speaking);
+          }
+        },
         onTranscript: handleTranscript,
         onStatusChange: setStatus,
         onError: (error) => {
@@ -174,7 +196,7 @@ export const AvatarVideoCall = () => {
   }, []);
 
   return (
-    <div className="w-full max-w-5xl mx-auto">
+    <div className="w-full max-w-6xl mx-auto">
       <div className="glass-strong rounded-2xl overflow-hidden shadow-card">
         {/* Video call header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
@@ -206,84 +228,86 @@ export const AvatarVideoCall = () => {
         </div>
 
         <div className="flex flex-col lg:flex-row">
-          {/* Avatar video section - NOW WITH LIVE VIDEO */}
-          <div className="flex-1 relative bg-gradient-dark min-h-[400px] lg:min-h-[500px]">
-            {/* Glow effect behind avatar */}
-            <div className="absolute inset-0 bg-gradient-glow" />
+          {/* Avatar video section - FULL BODY VIEW */}
+          <div className="flex-1 relative bg-gradient-to-b from-secondary/50 to-background min-h-[500px] lg:min-h-[600px]">
+            {/* Subtle glow effect */}
+            <div className="absolute inset-0 bg-gradient-radial from-primary/5 via-transparent to-transparent" />
 
-            {/* Live Simli Avatar Video */}
-            <div className="relative z-10 flex items-center justify-center h-full p-8">
-              <div className="relative">
-                <div className={`absolute -inset-4 rounded-full blur-2xl transition-opacity ${
-                  isSpeaking ? 'bg-primary/30 opacity-100' : 'bg-primary/20 opacity-50'
-                }`} />
-                
-                {/* Video element for Simli avatar */}
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  className={`relative w-64 h-64 lg:w-80 lg:h-80 rounded-full object-cover transition-all ${
-                    isSpeaking ? 'shadow-glow' : 'shadow-card'
-                  } ${status === 'connected' ? 'block' : 'hidden'}`}
-                />
-                
-                {/* Hidden audio element for Simli */}
-                <audio ref={audioRef} autoPlay className="hidden" />
-                
-                {/* Placeholder when not connected */}
-                {status !== 'connected' && (
-                  <div className={`relative w-64 h-64 lg:w-80 lg:h-80 rounded-full bg-secondary flex items-center justify-center transition-all ${
-                    status === 'connecting' ? 'animate-pulse' : ''
-                  }`}>
-                    {status === 'connecting' ? (
-                      <Loader2 className="w-16 h-16 text-primary animate-spin" />
-                    ) : (
-                      <div className="text-center">
-                        <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-primary flex items-center justify-center">
-                          <Phone className="w-12 h-12 text-primary-foreground" />
-                        </div>
-                        <p className="text-muted-foreground text-sm">Click to start call</p>
+            {/* Live Simli Avatar Video - Full body view */}
+            <div className="relative z-10 flex items-center justify-center h-full">
+              {/* Video element for Simli avatar - full size, no circle crop */}
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted={false}
+                className={`w-full h-full object-contain max-h-[550px] transition-all ${
+                  status === 'connected' ? 'opacity-100' : 'opacity-0'
+                }`}
+              />
+              
+              {/* Hidden audio element for Simli */}
+              <audio ref={audioRef} autoPlay className="hidden" />
+              
+              {/* Placeholder when not connected */}
+              {status !== 'connected' && (
+                <div className={`absolute inset-0 flex items-center justify-center transition-all ${
+                  status === 'connecting' ? 'animate-pulse' : ''
+                }`}>
+                  {status === 'connecting' ? (
+                    <div className="text-center">
+                      <Loader2 className="w-16 h-16 text-primary animate-spin mx-auto mb-4" />
+                      <p className="text-muted-foreground">Initializing avatar...</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="w-32 h-32 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center border border-primary/20">
+                        <Phone className="w-16 h-16 text-primary/60" />
                       </div>
-                    )}
-                  </div>
-                )}
+                      <p className="text-muted-foreground text-lg mb-2">Ready to assist</p>
+                      <p className="text-muted-foreground/60 text-sm">Click "Start Call" to begin</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
-                {/* Speaking indicator */}
-                {status === 'connected' && (
-                  <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-card/90 backdrop-blur px-3 py-1.5 rounded-full border border-border/50">
-                    {isSpeaking ? (
-                      <>
-                        <div className="flex gap-0.5">
-                          {[0, 1, 2, 3, 4].map((i) => (
-                            <div
-                              key={i}
-                              className="w-1 bg-primary rounded-full animate-wave"
-                              style={{
-                                height: '12px',
-                                animationDelay: `${i * 0.1}s`,
-                              }}
-                            />
-                          ))}
-                        </div>
-                        <span className="text-xs text-muted-foreground ml-2">Speaking...</span>
-                      </>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Listening...</span>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* Speaking indicator overlay */}
+              {status === 'connected' && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-card/90 backdrop-blur-sm px-4 py-2 rounded-full border border-border/50 shadow-lg">
+                  {isSpeaking ? (
+                    <>
+                      <div className="flex gap-0.5">
+                        {[0, 1, 2, 3, 4].map((i) => (
+                          <div
+                            key={i}
+                            className="w-1.5 bg-primary rounded-full animate-wave"
+                            style={{
+                              height: '16px',
+                              animationDelay: `${i * 0.1}s`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-sm text-foreground font-medium ml-2">Speaking...</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+                      <span className="text-sm text-muted-foreground">Listening...</span>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Call controls */}
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3">
+            <div className="absolute bottom-20 left-1/2 -translate-x-1/2 flex items-center gap-3">
               {status === 'disconnected' ? (
                 <Button
                   variant="hero"
                   size="lg"
                   onClick={startConversation}
-                  className="rounded-full"
+                  className="rounded-full px-8"
                 >
                   <Phone className="w-5 h-5 mr-2" />
                   Start Call
@@ -293,7 +317,7 @@ export const AvatarVideoCall = () => {
                   variant="secondary"
                   size="lg"
                   disabled
-                  className="rounded-full"
+                  className="rounded-full px-8"
                 >
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   Connecting...
@@ -329,7 +353,7 @@ export const AvatarVideoCall = () => {
           </div>
 
           {/* Chat section */}
-          <div className="lg:w-96 border-t lg:border-t-0 lg:border-l border-border/50 flex flex-col max-h-[500px]">
+          <div className="lg:w-96 border-t lg:border-t-0 lg:border-l border-border/50 flex flex-col max-h-[600px]">
             <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50">
               <MessageSquare className="w-4 h-4 text-primary" />
               <span className="text-sm font-medium">Live Transcript</span>
