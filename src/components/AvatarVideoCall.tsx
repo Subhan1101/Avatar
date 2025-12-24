@@ -2,8 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Mic, MicOff, Phone, Monitor, MessageSquare, Volume2, Loader2, AudioLines } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { HeyGenAvatarClient } from '@/utils/HeyGenClient';
+import { DIDClient } from '@/utils/DIDClient';
 import { supabase } from '@/integrations/supabase/client';
+
+// Your D-ID Agent ID
+const DID_AGENT_ID = 'agt_KLrQx07r';
 
 interface Message {
   id: number;
@@ -23,7 +26,7 @@ export const AvatarVideoCall = () => {
   
   const [isListening, setIsListening] = useState(false);
   
-  const heygenRef = useRef<HeyGenAvatarClient | null>(null);
+  const didRef = useRef<DIDClient | null>(null);
   const messageIdRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -164,15 +167,15 @@ export const AvatarVideoCall = () => {
         throw new Error("Video element not found");
       }
 
-      console.log('Initializing HeyGen avatar...');
-      heygenRef.current = new HeyGenAvatarClient({
+      console.log('Initializing D-ID avatar...');
+      didRef.current = new DIDClient(DID_AGENT_ID, {
         onConnected: () => {
-          console.log('HeyGen avatar connected');
+          console.log('D-ID avatar connected');
           setStatus('connected');
           
           // Send initial greeting
           setTimeout(() => {
-            heygenRef.current?.speak("Hello! I'm Aria, your friendly IT support assistant. How can I help you today?");
+            didRef.current?.speak("Hello! I'm Aria, your friendly IT support assistant. How can I help you today?");
             setMessages([{
               id: ++messageIdRef.current,
               sender: 'agent',
@@ -181,13 +184,13 @@ export const AvatarVideoCall = () => {
           }, 1000);
         },
         onDisconnected: () => {
-          console.log('HeyGen avatar disconnected');
+          console.log('D-ID avatar disconnected');
           setStatus('disconnected');
         },
         onSpeakingStart: () => setIsSpeaking(true),
         onSpeakingEnd: () => setIsSpeaking(false),
         onError: (error) => {
-          console.error('HeyGen error:', error);
+          console.error('D-ID error:', error);
           toast({
             variant: 'destructive',
             title: 'Avatar Error',
@@ -203,7 +206,7 @@ export const AvatarVideoCall = () => {
         },
       });
 
-      await heygenRef.current.init(videoRef.current);
+      await didRef.current.init(videoRef.current);
 
       toast({
         title: 'Connected',
@@ -221,8 +224,8 @@ export const AvatarVideoCall = () => {
   }, [toast]);
 
   const endConversation = useCallback(() => {
-    heygenRef.current?.disconnect();
-    heygenRef.current = null;
+    didRef.current?.disconnect();
+    didRef.current = null;
     setStatus('disconnected');
     setIsSpeaking(false);
     setMessages([]);
@@ -254,7 +257,7 @@ export const AvatarVideoCall = () => {
       }]);
 
       // Make avatar speak the response with lip-sync
-      await heygenRef.current?.speak(aiResponse);
+      await didRef.current?.speak(aiResponse);
 
     } catch (error) {
       console.error('Error getting AI response:', error);
@@ -264,7 +267,7 @@ export const AvatarVideoCall = () => {
         sender: 'agent',
         text: errorMessage
       }]);
-      await heygenRef.current?.speak(errorMessage);
+      await didRef.current?.speak(errorMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -289,7 +292,7 @@ export const AvatarVideoCall = () => {
 
   useEffect(() => {
     return () => {
-      heygenRef.current?.disconnect();
+      didRef.current?.disconnect();
     };
   }, []);
 
