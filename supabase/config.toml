@@ -2,3 +2,6 @@ project_id = "imgjhfmtsjvnhgjimndm"
 
 [functions.realtime-session]
 verify_jwt = false
+
+[functions.simli-session]
+verify_jwt = false
