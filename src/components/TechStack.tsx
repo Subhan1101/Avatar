@@ -1,11 +1,11 @@
 export const TechStack = () => {
   const technologies = [
-    { name: 'LiveKit', description: 'Real-time WebRTC infrastructure' },
-    { name: 'Beyond Presence', description: 'Hyper-realistic AI avatars' },
-    { name: 'OpenAI GPT-4', description: 'Advanced language understanding' },
-    { name: 'Python', description: 'Agents backend runtime' },
+    { name: 'OpenAI GPT-4o', description: 'Realtime conversational AI' },
+    { name: 'Whisper', description: 'Speech-to-text transcription' },
+    { name: 'WebRTC', description: 'Real-time audio streaming' },
+    { name: 'Lovable Cloud', description: 'Backend infrastructure' },
     { name: 'React', description: 'Frontend framework' },
-    { name: 'ElevenLabs', description: 'Natural voice synthesis' },
+    { name: 'TTS', description: 'Natural voice synthesis' },
   ];
 
   return (
