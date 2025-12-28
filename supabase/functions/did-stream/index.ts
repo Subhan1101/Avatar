@@ -28,7 +28,7 @@ serve(async (req) => {
     // Create a new stream
     if (action === 'create-stream') {
       console.log('Creating D-ID stream for agent:', agentId);
-      
+
       const response = await fetch(`${DID_API_URL}/agents/${agentId}/streams`, {
         method: 'POST',
         headers: {
@@ -44,7 +44,17 @@ serve(async (req) => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('D-ID create stream error:', response.status, errorText);
-        throw new Error(`Failed to create stream: ${response.status}`);
+        return new Response(
+          JSON.stringify({
+            error: `Failed to create stream`,
+            did_status: response.status,
+            did_body: errorText,
+          }),
+          {
+            status: response.status,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          },
+        );
       }
 
       const data = await response.json();
@@ -57,7 +67,7 @@ serve(async (req) => {
     // Submit SDP answer
     if (action === 'submit-sdp') {
       console.log('Submitting SDP answer for stream:', streamId);
-      
+
       const response = await fetch(`${DID_API_URL}/agents/${agentId}/streams/${streamId}/sdp`, {
         method: 'POST',
         headers: {
@@ -76,7 +86,17 @@ serve(async (req) => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('D-ID submit SDP error:', response.status, errorText);
-        throw new Error(`Failed to submit SDP: ${response.status}`);
+        return new Response(
+          JSON.stringify({
+            error: `Failed to submit SDP`,
+            did_status: response.status,
+            did_body: errorText,
+          }),
+          {
+            status: response.status,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          },
+        );
       }
 
       return new Response(JSON.stringify({ success: true }), {
@@ -116,7 +136,7 @@ serve(async (req) => {
     // Speak - make avatar say specific text (uses our own AI for responses)
     if (action === 'speak') {
       console.log('Making avatar speak:', text?.substring(0, 50));
-      
+
       const response = await fetch(`${DID_API_URL}/agents/${agentId}/streams/${streamId}`, {
         method: 'POST',
         headers: {
@@ -135,7 +155,17 @@ serve(async (req) => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('D-ID speak error:', response.status, errorText);
-        throw new Error(`Failed to speak: ${response.status}`);
+        return new Response(
+          JSON.stringify({
+            error: `Failed to speak`,
+            did_status: response.status,
+            did_body: errorText,
+          }),
+          {
+            status: response.status,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          },
+        );
       }
 
       return new Response(JSON.stringify({ success: true }), {
