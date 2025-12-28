@@ -32,6 +32,7 @@ export const AvatarVideoCall = () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const lastProcessedRef = useRef<number>(0);
+  const speechUnavailableRef = useRef(false);
 
   // Start continuous listening
   const startListening = useCallback(() => {
@@ -168,6 +169,16 @@ export const AvatarVideoCall = () => {
     return () => clearInterval(interval);
   }, [isSpeaking]);
 
+  const showSpeechUnavailable = useCallback(() => {
+    if (speechUnavailableRef.current) return;
+    speechUnavailableRef.current = true;
+    toast({
+      variant: 'destructive',
+      title: 'Avatar voice unavailable',
+      description: 'The avatar cannot speak right now (insufficient credits). Chat will continue without voice.'
+    });
+  }, [toast]);
+
   const startConversation = useCallback(async () => {
     try {
       setStatus('connecting');
@@ -183,13 +194,18 @@ export const AvatarVideoCall = () => {
           setStatus('connected');
           
           // Send initial greeting
-          setTimeout(() => {
-            didRef.current?.speak("Hello! I'm Aria, your friendly IT support assistant. How can I help you today?");
-            setMessages([{
-              id: ++messageIdRef.current,
-              sender: 'agent',
-              text: "Hello! I'm Aria, your friendly IT support assistant. How can I help you today?"
-            }]);
+          setTimeout(async () => {
+            const greeting = "Hello! I'm Aria, your friendly IT support assistant. How can I help you today?";
+            const ok = await didRef.current?.speak(greeting);
+            if (ok === false) showSpeechUnavailable();
+
+            setMessages([
+              {
+                id: ++messageIdRef.current,
+                sender: 'agent',
+                text: greeting,
+              },
+            ]);
           }, 1000);
         },
         onDisconnected: () => {
@@ -230,7 +246,7 @@ export const AvatarVideoCall = () => {
         description: error instanceof Error ? error.message : 'Failed to start conversation'
       });
     }
-  }, [toast]);
+  }, [toast, showSpeechUnavailable]);
 
   const endConversation = useCallback(() => {
     didRef.current?.disconnect();
@@ -266,7 +282,8 @@ export const AvatarVideoCall = () => {
       }]);
 
       // Make avatar speak the response with lip-sync
-      await didRef.current?.speak(aiResponse);
+      const ok = await didRef.current?.speak(aiResponse);
+      if (ok === false) showSpeechUnavailable();
 
     } catch (error) {
       console.error('Error getting AI response:', error);
@@ -276,11 +293,12 @@ export const AvatarVideoCall = () => {
         sender: 'agent',
         text: errorMessage
       }]);
-      await didRef.current?.speak(errorMessage);
+      const ok = await didRef.current?.speak(errorMessage);
+      if (ok === false) showSpeechUnavailable();
     } finally {
       setIsProcessing(false);
     }
-  }, []);
+  }, [showSpeechUnavailable]);
 
   const sendTextMessage = useCallback(async () => {
     if (!inputText.trim() || status !== 'connected' || isProcessing) return;

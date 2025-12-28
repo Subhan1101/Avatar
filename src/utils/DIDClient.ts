@@ -21,6 +21,7 @@ export class DIDClient {
   private isSpeaking = false;
   private speakQueue: string[] = [];
   private isProcessingQueue = false;
+  private speechDisabledReason: string | null = null;
 
   constructor(agentId: string, callbacks: DIDClientCallbacks) {
     this.agentId = agentId;
@@ -155,24 +156,31 @@ export class DIDClient {
     }
   }
 
-  async speak(text: string): Promise<void> {
+  async speak(text: string): Promise<boolean> {
     if (!this.streamId || !this.sessionId) {
       console.error('Not connected');
-      return;
+      return false;
+    }
+
+    if (this.speechDisabledReason) {
+      console.warn('Speech disabled:', this.speechDisabledReason);
+      return false;
     }
 
     // If already speaking, queue this request
     if (this.isSpeaking || this.isProcessingQueue) {
       console.log('Already speaking, queueing:', text.substring(0, 30) + '...');
       this.speakQueue.push(text);
-      return;
+      return true;
     }
 
-    await this.processSpeak(text);
+    return await this.processSpeak(text);
   }
 
-  private async processSpeak(text: string): Promise<void> {
-    if (!this.streamId || !this.sessionId) return;
+  private async processSpeak(text: string): Promise<boolean> {
+    if (!this.streamId || !this.sessionId) return false;
+
+    let success = true;
 
     try {
       this.isProcessingQueue = true;
@@ -180,7 +188,7 @@ export class DIDClient {
       this.callbacks.onSpeakingStart();
 
       console.log('Speaking:', text.substring(0, 50) + '...');
-      
+
       const { error } = await supabase.functions.invoke('did-stream', {
         body: {
           action: 'speak',
@@ -188,38 +196,44 @@ export class DIDClient {
           streamId: this.streamId,
           sessionId: this.sessionId,
           text,
-        }
+        },
       });
 
       if (error) {
-        console.error('Speak API error:', error);
-        // Don't throw - continue to end speaking state
+        success = false;
+        const msg = String((error as any)?.message ?? error);
+        console.error('Speak API error:', msg);
+
+        // D-ID returns 402 when the account has no credits.
+        if (msg.includes('402') || msg.toLowerCase().includes('insufficient') || msg.toLowerCase().includes('credits')) {
+          this.speechDisabledReason = 'Avatar voice is unavailable (insufficient credits).';
+        }
+      } else {
+        // Estimate speaking duration based on text length (roughly 150 words per minute)
+        const words = text.split(' ').length;
+        const durationMs = Math.max(3000, (words / 150) * 60 * 1000);
+        await new Promise((resolve) => setTimeout(resolve, durationMs));
       }
 
-      // Estimate speaking duration based on text length (roughly 150 words per minute)
-      const words = text.split(' ').length;
-      const durationMs = Math.max(3000, (words / 150) * 60 * 1000);
-      
-      // Wait for speech to complete
-      await new Promise(resolve => setTimeout(resolve, durationMs));
-      
       this.isSpeaking = false;
       this.callbacks.onSpeakingEnd();
       this.isProcessingQueue = false;
 
       // Process next in queue if any
-      if (this.speakQueue.length > 0) {
+      if (this.speakQueue.length > 0 && !this.speechDisabledReason) {
         const nextText = this.speakQueue.shift()!;
         // Small delay between speeches to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
         await this.processSpeak(nextText);
       }
 
+      return success;
     } catch (error) {
       console.error('Speak error:', error);
       this.isSpeaking = false;
       this.isProcessingQueue = false;
       this.callbacks.onSpeakingEnd();
+      return false;
     }
   }
 
