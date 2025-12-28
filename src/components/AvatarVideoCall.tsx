@@ -124,12 +124,23 @@ export const AvatarVideoCall = () => {
     }
   }, [isSpeaking, isProcessing]);
 
-  // Restart listening after avatar finishes speaking
+  // Track when avatar stopped speaking to add buffer time
+  const lastSpeakingEndRef = useRef<number>(0);
+
+  // Update timestamp when avatar stops speaking
+  useEffect(() => {
+    if (!isSpeaking) {
+      lastSpeakingEndRef.current = Date.now();
+    }
+  }, [isSpeaking]);
+
+  // Restart listening after avatar finishes speaking with longer delay
   useEffect(() => {
     if (!isSpeaking && !isProcessing && status === 'connected' && !isMuted) {
+      // Wait 1.5 seconds after avatar stops speaking to avoid echo
       const timer = setTimeout(() => {
         startListening();
-      }, 500);
+      }, 1500);
       return () => clearTimeout(timer);
     }
   }, [isSpeaking, isProcessing, status, isMuted, startListening]);
@@ -143,6 +154,13 @@ export const AvatarVideoCall = () => {
       console.log('Debouncing voice input, too soon after last request');
       return;
     }
+
+    // Ignore voice input that comes too soon after avatar stopped speaking (echo prevention)
+    if (now - lastSpeakingEndRef.current < 1000) {
+      console.log('Ignoring voice input, too soon after avatar stopped speaking (possible echo)');
+      return;
+    }
+
     lastProcessedRef.current = now;
 
     // Add user message
