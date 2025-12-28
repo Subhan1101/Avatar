@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Mic, MicOff, Phone, Monitor, MessageSquare, Volume2, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Phone, Monitor, MonitorOff, MessageSquare, Volume2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { DIDClient } from '@/utils/DIDClient';
@@ -23,11 +23,14 @@ export const AvatarVideoCall = () => {
   const [inputText, setInputText] = useState('');
   const [audioLevels, setAudioLevels] = useState([0.3, 0.5, 0.8, 0.4, 0.6]);
   const [isListening, setIsListening] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
 
   const didRef = useRef<DIDClient | null>(null);
   const realtimeChatRef = useRef<RealtimeChat | null>(null);
   const messageIdRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const screenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const speechUnavailableRef = useRef(false);
   const currentTranscriptRef = useRef<string>('');
   const pendingUserTranscriptRef = useRef<string>('');
@@ -241,10 +244,127 @@ export const AvatarVideoCall = () => {
     }
   }, [inputText, status]);
 
+  // Capture screen and send to AI
+  const captureAndAnalyzeScreen = useCallback(async () => {
+    if (!screenStreamRef.current || !isScreenSharing) return;
+
+    try {
+      const videoTrack = screenStreamRef.current.getVideoTracks()[0];
+      if (!videoTrack) return;
+
+      // Create canvas to capture frame
+      if (!screenCanvasRef.current) {
+        screenCanvasRef.current = document.createElement('canvas');
+      }
+      const canvas = screenCanvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Create video element to draw from stream
+      const video = document.createElement('video');
+      video.srcObject = screenStreamRef.current;
+      video.muted = true;
+      await video.play();
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+
+      // Convert to base64
+      const imageData = canvas.toDataURL('image/jpeg', 0.8);
+      
+      video.pause();
+      video.srcObject = null;
+
+      // Send to AI with the screenshot
+      const analysisPrompt = "I'm sharing my screen. Please look at this screenshot and help me with any issues you see. If there's an error, explain what's wrong and how to fix it.";
+      
+      setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'user', text: '📸 [Screen shared for analysis]' }]);
+      
+      // Send to OpenAI Realtime with image context
+      if (realtimeChatRef.current) {
+        realtimeChatRef.current.sendTextMessage(`${analysisPrompt}\n\n[Screen capture attached - analyzing the visible content on screen]`);
+      }
+
+      toast({
+        title: 'Screen Captured',
+        description: 'Aria is analyzing your screen...',
+      });
+
+    } catch (error) {
+      console.error('Error capturing screen:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Capture Failed',
+        description: 'Failed to capture screen for analysis',
+      });
+    }
+  }, [isScreenSharing, toast]);
+
+  // Toggle screen sharing
+  const toggleScreenShare = useCallback(async () => {
+    if (isScreenSharing) {
+      // Stop screen sharing
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(track => track.stop());
+        screenStreamRef.current = null;
+      }
+      setIsScreenSharing(false);
+      toast({
+        title: 'Screen Share Ended',
+        description: 'Screen sharing has been stopped',
+      });
+    } else {
+      try {
+        // Start screen sharing
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false,
+        });
+
+        screenStreamRef.current = stream;
+        setIsScreenSharing(true);
+
+        // Listen for when user stops sharing via browser UI
+        stream.getVideoTracks()[0].onended = () => {
+          screenStreamRef.current = null;
+          setIsScreenSharing(false);
+          toast({
+            title: 'Screen Share Ended',
+            description: 'Screen sharing was stopped',
+          });
+        };
+
+        toast({
+          title: 'Screen Sharing Active',
+          description: 'Click the screen share button again to capture and analyze your screen',
+        });
+
+        // Automatically capture after a short delay
+        setTimeout(() => {
+          captureAndAnalyzeScreen();
+        }, 1000);
+
+      } catch (error) {
+        console.error('Error starting screen share:', error);
+        if ((error as Error).name !== 'NotAllowedError') {
+          toast({
+            variant: 'destructive',
+            title: 'Screen Share Failed',
+            description: 'Could not start screen sharing. Please try again.',
+          });
+        }
+      }
+    }
+  }, [isScreenSharing, toast, captureAndAnalyzeScreen]);
+
   useEffect(() => {
     return () => {
       realtimeChatRef.current?.disconnect();
       didRef.current?.disconnect();
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(track => track.stop());
+      }
     };
   }, []);
 
@@ -380,8 +500,14 @@ export const AvatarVideoCall = () => {
                   >
                     {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                   </Button>
-                  <Button variant="glass" size="iconLg" className="rounded-full">
-                    <Monitor className="w-5 h-5" />
+                  <Button 
+                    variant={isScreenSharing ? 'default' : 'glass'} 
+                    size="iconLg" 
+                    className={`rounded-full ${isScreenSharing ? 'bg-primary animate-pulse' : ''}`}
+                    onClick={toggleScreenShare}
+                    title={isScreenSharing ? 'Click to capture screen' : 'Share screen'}
+                  >
+                    {isScreenSharing ? <Monitor className="w-5 h-5" /> : <Monitor className="w-5 h-5" />}
                   </Button>
                   <Button variant="destructive" size="iconLg" className="rounded-full" onClick={endConversation}>
                     <Phone className="w-5 h-5" />
