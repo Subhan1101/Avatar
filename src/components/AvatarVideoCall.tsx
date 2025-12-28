@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Mic, MicOff, Phone, Monitor, MessageSquare, Volume2, Loader2, AudioLines } from 'lucide-react';
+import { Mic, MicOff, Phone, Monitor, MessageSquare, Volume2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { DIDClient } from '@/utils/DIDClient';
-import { supabase } from '@/integrations/supabase/client';
+import { RealtimeChat } from '@/utils/RealtimeAudio';
 
 // Your D-ID Agent ID
 const DID_AGENT_ID = 'v2_agt_FsyLjsn-';
@@ -22,165 +22,15 @@ export const AvatarVideoCall = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [audioLevels, setAudioLevels] = useState([0.3, 0.5, 0.8, 0.4, 0.6]);
-  const [isProcessing, setIsProcessing] = useState(false);
-
   const [isListening, setIsListening] = useState(false);
 
   const didRef = useRef<DIDClient | null>(null);
+  const realtimeChatRef = useRef<RealtimeChat | null>(null);
   const messageIdRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recognitionRef = useRef<any>(null);
-  const lastProcessedRef = useRef<number>(0);
   const speechUnavailableRef = useRef(false);
-
-  // Echo-prevention: track when the avatar last finished speaking + what it last said
-  const lastSpeakingEndRef = useRef<number>(0);
-  const lastAgentUtteranceRef = useRef<string>('');
-  const handleVoiceInputRef = useRef<(text: string) => void>(() => {});
-
-  // Start listening (manual: only when user taps the mic)
-  const startListening = useCallback(() => {
-    if (!recognitionRef.current) return;
-    if (status !== 'connected') return;
-    if (isProcessing || isSpeaking) return;
-
-    try {
-      recognitionRef.current.start();
-      setIsListening(true);
-      console.log('Started listening...');
-    } catch (error) {
-      console.error('Error starting speech recognition:', error);
-    }
-  }, [status, isProcessing, isSpeaking]);
-
-  const stopListening = useCallback(() => {
-    if (!recognitionRef.current) return;
-    try {
-      recognitionRef.current.stop();
-    } catch (e) {
-      // Ignore
-    }
-    setIsListening(false);
-  }, []);
-
-  // Initialize Speech Recognition (single-shot; no auto restart)
-  useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognitionAPI) {
-      const recognition = new SpeechRecognitionAPI();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        console.log('Voice input:', transcript);
-        if (transcript.trim()) {
-          handleVoiceInputRef.current(transcript.trim());
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-    }
-  }, []);
-
-  // Stop listening when muted
-  useEffect(() => {
-    if (isMuted) {
-      stopListening();
-    }
-  }, [isMuted, stopListening]);
-
-  // Stop listening when avatar is speaking or processing
-  useEffect(() => {
-    if (isSpeaking || isProcessing) {
-      stopListening();
-    }
-  }, [isSpeaking, isProcessing, stopListening]);
-
-  // Update timestamp when avatar stops speaking
-  useEffect(() => {
-    if (!isSpeaking) {
-      lastSpeakingEndRef.current = Date.now();
-    }
-  }, [isSpeaking]);
-
-  const handleVoiceInput = useCallback(
-    async (transcript: string) => {
-      if (!transcript || status !== 'connected' || isProcessing) return;
-
-      const now = Date.now();
-
-      // Debounce: prevent processing if we just processed something
-      if (now - lastProcessedRef.current < 2000) {
-        console.log('Debouncing voice input, too soon after last request');
-        return;
-      }
-
-      // Strong echo filter: ignore anything shortly after the avatar stops speaking
-      const msSinceSpeaking = now - lastSpeakingEndRef.current;
-      const normalized = transcript.trim().toLowerCase();
-      const words = normalized.split(/\s+/).filter(Boolean);
-      const lastAgent = lastAgentUtteranceRef.current.trim().toLowerCase();
-
-      // 1) Ignore very short utterances right after the avatar spoke (most common echo case: "hello")
-      if (msSinceSpeaking < 8000 && words.length <= 2) {
-        console.log('Ignoring short voice input right after avatar speech (likely echo):', transcript);
-        return;
-      }
-
-      // 2) Ignore anything that matches words from the last agent utterance right after it spoke
-      if (msSinceSpeaking < 15000 && lastAgent && lastAgent.includes(normalized)) {
-        console.log('Ignoring voice input that matches last agent utterance (likely echo):', transcript);
-        return;
-      }
-
-      lastProcessedRef.current = now;
-
-      // Add user message
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: ++messageIdRef.current,
-          sender: 'user',
-          text: transcript,
-        },
-      ]);
-
-      // Get AI response and make avatar speak
-      await getAIResponse(transcript);
-    },
-    [status, isProcessing],
-  );
-
-  useEffect(() => {
-    handleVoiceInputRef.current = handleVoiceInput;
-  }, [handleVoiceInput]);
-
-  const toggleMute = useCallback(() => {
-    if (status !== 'connected') return;
-
-    if (isMuted) {
-      // Unmute and listen once (manual mode)
-      setIsMuted(false);
-      startListening();
-    } else {
-      // Mute and stop listening
-      setIsMuted(true);
-      stopListening();
-    }
-  }, [status, isMuted, startListening, stopListening]);
+  const currentTranscriptRef = useRef<string>('');
+  const pendingUserTranscriptRef = useRef<string>('');
 
   // Audio wave animation when speaking
   useEffect(() => {
@@ -201,84 +51,158 @@ export const AvatarVideoCall = () => {
     });
   }, [toast]);
 
-  const startConversation = useCallback(
-    async () => {
-      try {
-        setStatus('connecting');
+  const startConversation = useCallback(async () => {
+    try {
+      setStatus('connecting');
 
-        if (!videoRef.current) {
-          throw new Error('Video element not found');
-        }
+      if (!videoRef.current) {
+        throw new Error('Video element not found');
+      }
 
-        console.log('Initializing D-ID avatar...');
-        didRef.current = new DIDClient(DID_AGENT_ID, {
-          onConnected: () => {
-            console.log('D-ID avatar connected');
-            setStatus('connected');
+      console.log('Initializing D-ID avatar...');
 
-            // Send initial greeting
-            setTimeout(async () => {
-              const greeting = "Hello! I'm Aria, your friendly IT support assistant. How can I help you today?";
-              lastAgentUtteranceRef.current = greeting;
-              const ok = await didRef.current?.speak(greeting);
-              if (ok === false) showSpeechUnavailable();
+      // First initialize D-ID for avatar video
+      didRef.current = new DIDClient(DID_AGENT_ID, {
+        onConnected: async () => {
+          console.log('D-ID avatar connected, now starting OpenAI Realtime...');
 
-              setMessages([
-                {
-                  id: ++messageIdRef.current,
-                  sender: 'agent',
-                  text: greeting,
-                },
-              ]);
-            }, 1000);
-          },
-          onDisconnected: () => {
-            console.log('D-ID avatar disconnected');
-            setStatus('disconnected');
-          },
-          onSpeakingStart: () => setIsSpeaking(true),
-          onSpeakingEnd: () => setIsSpeaking(false),
-          onError: (error) => {
-            console.error('D-ID error:', error);
+          // Now start OpenAI Realtime for voice
+          try {
+            realtimeChatRef.current = new RealtimeChat({
+              onStatusChange: (s) => {
+                console.log('Realtime status:', s);
+                if (s === 'connected') {
+                  setStatus('connected');
+                  setIsListening(true);
+
+                  // Send initial greeting via D-ID
+                  setTimeout(async () => {
+                    const greeting = "Hello! I'm Aria, your friendly IT support assistant. How can I help you today?";
+                    setMessages([{ id: ++messageIdRef.current, sender: 'agent', text: greeting }]);
+                    const ok = await didRef.current?.speak(greeting);
+                    if (ok === false) showSpeechUnavailable();
+                  }, 500);
+                } else if (s === 'disconnected') {
+                  setIsListening(false);
+                }
+              },
+              onSpeakingChange: (speaking) => {
+                setIsSpeaking(speaking);
+              },
+              onTranscript: (text, role) => {
+                console.log(`Transcript [${role}]:`, text);
+
+                if (role === 'user') {
+                  // User transcript from Whisper
+                  pendingUserTranscriptRef.current += text;
+                } else if (role === 'assistant') {
+                  // Assistant transcript - accumulate for D-ID
+                  currentTranscriptRef.current += text;
+                }
+              },
+              onMessage: async (event) => {
+                // When assistant response is complete, add to messages and make D-ID speak
+                if (event.type === 'response.audio_transcript.done') {
+                  const fullText = currentTranscriptRef.current.trim();
+                  if (fullText) {
+                    setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'agent', text: fullText }]);
+                    
+                    // Make D-ID avatar speak with lip sync
+                    const ok = await didRef.current?.speak(fullText);
+                    if (ok === false) showSpeechUnavailable();
+                  }
+                  currentTranscriptRef.current = '';
+                }
+
+                // When user finishes speaking, add their message
+                if (event.type === 'conversation.item.input_audio_transcription.completed') {
+                  const userText = (event.transcript as string)?.trim();
+                  if (userText) {
+                    setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'user', text: userText }]);
+                  }
+                  pendingUserTranscriptRef.current = '';
+                }
+
+                // Handle interruption - user started speaking while assistant was talking
+                if (event.type === 'input_audio_buffer.speech_started') {
+                  console.log('User interrupted - speech started');
+                  // The server VAD will handle stopping the current response
+                }
+              },
+              onError: (error) => {
+                console.error('Realtime error:', error);
+                toast({
+                  variant: 'destructive',
+                  title: 'Voice Error',
+                  description: 'Voice connection error. Please try again.',
+                });
+              },
+            });
+
+            await realtimeChatRef.current.init();
+          } catch (error) {
+            console.error('Failed to initialize OpenAI Realtime:', error);
             toast({
               variant: 'destructive',
-              title: 'Avatar Error',
-              description: error.message || 'Failed to initialize avatar',
+              title: 'Voice Error',
+              description: 'Failed to start voice. Avatar video will work without voice input.',
             });
-            setStatus('disconnected');
-          },
-          onStreamReady: (stream) => {
-            console.log('Stream ready');
-            if (videoRef.current) {
-              videoRef.current.srcObject = stream;
-            }
-          },
-        });
+            setStatus('connected');
+          }
+        },
+        onDisconnected: () => {
+          console.log('D-ID avatar disconnected');
+          setStatus('disconnected');
+          realtimeChatRef.current?.disconnect();
+        },
+        onSpeakingStart: () => {
+          // D-ID speaking state is controlled by our calls, not needed here
+        },
+        onSpeakingEnd: () => {
+          // D-ID speaking state is controlled by our calls
+        },
+        onError: (error) => {
+          console.error('D-ID error:', error);
+          toast({
+            variant: 'destructive',
+            title: 'Avatar Error',
+            description: error.message || 'Failed to initialize avatar',
+          });
+          setStatus('disconnected');
+        },
+        onStreamReady: (stream) => {
+          console.log('D-ID stream ready');
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        },
+      });
 
-        await didRef.current.init(videoRef.current);
+      await didRef.current.init(videoRef.current);
 
-        toast({
-          title: 'Connected',
-          description: 'AI Support Agent Aria is ready to help!',
-        });
-      } catch (error) {
-        console.error('Error starting conversation:', error);
-        setStatus('disconnected');
-        toast({
-          variant: 'destructive',
-          title: 'Connection Failed',
-          description: error instanceof Error ? error.message : 'Failed to start conversation',
-        });
-      }
-    },
-    [toast, showSpeechUnavailable],
-  );
+      toast({
+        title: 'Connecting',
+        description: 'Setting up voice and video...',
+      });
+    } catch (error) {
+      console.error('Error starting conversation:', error);
+      setStatus('disconnected');
+      toast({
+        variant: 'destructive',
+        title: 'Connection Failed',
+        description: error instanceof Error ? error.message : 'Failed to start conversation',
+      });
+    }
+  }, [toast, showSpeechUnavailable]);
 
   const endConversation = useCallback(() => {
+    realtimeChatRef.current?.disconnect();
+    realtimeChatRef.current = null;
     didRef.current?.disconnect();
     didRef.current = null;
     setStatus('disconnected');
     setIsSpeaking(false);
+    setIsListening(false);
     setMessages([]);
     toast({
       title: 'Disconnected',
@@ -286,75 +210,40 @@ export const AvatarVideoCall = () => {
     });
   }, [toast]);
 
-  // Get AI response and make avatar speak it
-  const getAIResponse = useCallback(
-    async (userMessage: string) => {
-      setIsProcessing(true);
+  const toggleMute = useCallback(() => {
+    if (status !== 'connected') return;
 
-      try {
-        // Use Lovable AI to generate response
-        const { data, error } = await supabase.functions.invoke('ai-chat', {
-          body: { message: userMessage },
-        });
+    const newMuted = !isMuted;
+    setIsMuted(newMuted);
+    realtimeChatRef.current?.setMuted(newMuted);
+    setIsListening(!newMuted);
 
-        if (error) throw error;
-
-        const aiResponse = data?.response || "I'm sorry, I couldn't process that. Could you please try again?";
-
-        // Add AI response to messages
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: ++messageIdRef.current,
-            sender: 'agent',
-            text: aiResponse,
-          },
-        ]);
-
-        // Make avatar speak the response with lip-sync
-        lastAgentUtteranceRef.current = aiResponse;
-        const ok = await didRef.current?.speak(aiResponse);
-        if (ok === false) showSpeechUnavailable();
-      } catch (error) {
-        console.error('Error getting AI response:', error);
-        const errorMessage = "I'm having trouble connecting right now. Please try again.";
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: ++messageIdRef.current,
-            sender: 'agent',
-            text: errorMessage,
-          },
-        ]);
-        lastAgentUtteranceRef.current = errorMessage;
-        const ok = await didRef.current?.speak(errorMessage);
-        if (ok === false) showSpeechUnavailable();
-      } finally {
-        setIsProcessing(false);
-      }
-    },
-    [showSpeechUnavailable],
-  );
+    toast({
+      title: newMuted ? 'Microphone Off' : 'Microphone On',
+      description: newMuted ? 'You are now muted' : 'You can speak now - just talk naturally!',
+    });
+  }, [status, isMuted, toast]);
 
   const sendTextMessage = useCallback(async () => {
-    if (!inputText.trim() || status !== 'connected' || isProcessing) return;
+    if (!inputText.trim() || status !== 'connected') return;
 
     const userMessage = inputText.trim();
     setInputText('');
 
     // Add user message
-    setMessages(prev => [...prev, {
-      id: ++messageIdRef.current,
-      sender: 'user',
-      text: userMessage
-    }]);
+    setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'user', text: userMessage }]);
 
-    // Get AI response and make avatar speak
-    await getAIResponse(userMessage);
-  }, [inputText, status, isProcessing, getAIResponse]);
+    // Send via OpenAI Realtime
+    try {
+      realtimeChatRef.current?.sendTextMessage(userMessage);
+    } catch (error) {
+      console.error('Error sending text message:', error);
+    }
+  }, [inputText, status]);
 
   useEffect(() => {
     return () => {
+      realtimeChatRef.current?.disconnect();
       didRef.current?.disconnect();
     };
   }, []);
@@ -365,11 +254,15 @@ export const AvatarVideoCall = () => {
         {/* Video call header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
           <div className="flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full ${
-              status === 'connected' ? 'bg-primary animate-pulse' :
-              status === 'connecting' ? 'bg-yellow-500 animate-pulse' :
-              'bg-muted-foreground'
-            }`} />
+            <div
+              className={`w-3 h-3 rounded-full ${
+                status === 'connected'
+                  ? 'bg-primary animate-pulse'
+                  : status === 'connecting'
+                  ? 'bg-yellow-500 animate-pulse'
+                  : 'bg-muted-foreground'
+              }`}
+            />
             <span className="text-sm font-medium text-foreground">AI IT Support Agent - Aria</span>
             <span className="text-xs text-muted-foreground">
               • {status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting...' : 'Disconnected'}
@@ -381,9 +274,7 @@ export const AvatarVideoCall = () => {
               {audioLevels.map((level, i) => (
                 <div
                   key={i}
-                  className={`w-1 rounded-full transition-all duration-150 ${
-                    isSpeaking ? 'bg-primary' : 'bg-muted-foreground/30'
-                  }`}
+                  className={`w-1 rounded-full transition-all duration-150 ${isSpeaking ? 'bg-primary' : 'bg-muted-foreground/30'}`}
                   style={{ height: isSpeaking ? `${level * 100}%` : '30%' }}
                 />
               ))}
@@ -397,7 +288,7 @@ export const AvatarVideoCall = () => {
             <div className="absolute inset-0 bg-gradient-radial from-primary/5 via-transparent to-transparent" />
 
             <div className="relative z-10 flex items-center justify-center h-full">
-              {/* HeyGen Avatar Video */}
+              {/* D-ID Avatar Video */}
               <video
                 ref={videoRef}
                 autoPlay
@@ -406,12 +297,10 @@ export const AvatarVideoCall = () => {
                   status === 'connected' ? 'opacity-100' : 'opacity-0 absolute'
                 }`}
               />
-              
+
               {/* Placeholder when not connected */}
               {status !== 'connected' && (
-                <div className={`flex items-center justify-center transition-all ${
-                  status === 'connecting' ? 'animate-pulse' : ''
-                }`}>
+                <div className={`flex items-center justify-center transition-all ${status === 'connecting' ? 'animate-pulse' : ''}`}>
                   {status === 'connecting' ? (
                     <div className="text-center">
                       <Loader2 className="w-16 h-16 text-primary animate-spin mx-auto mb-4" />
@@ -430,7 +319,7 @@ export const AvatarVideoCall = () => {
                 </div>
               )}
 
-              {/* Speaking indicator overlay */}
+              {/* Speaking/Listening indicator overlay */}
               {status === 'connected' && (
                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-card/90 backdrop-blur-sm px-4 py-2 rounded-full border border-border/50 shadow-lg">
                   {isSpeaking ? (
@@ -449,25 +338,20 @@ export const AvatarVideoCall = () => {
                       </div>
                       <span className="text-sm text-foreground font-medium ml-2">Speaking...</span>
                     </>
-                  ) : isProcessing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                      <span className="text-sm text-muted-foreground">Thinking...</span>
-                    </>
                   ) : isMuted ? (
                     <>
-                      <MicOff className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Mic off</span>
+                      <MicOff className="w-4 h-4 text-destructive" />
+                      <span className="text-sm text-muted-foreground">Microphone off</span>
                     </>
                   ) : isListening ? (
                     <>
-                      <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                      <span className="text-sm text-muted-foreground">Listening...</span>
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                      <span className="text-sm text-green-600 font-medium">Listening... Just speak!</span>
                     </>
                   ) : (
                     <>
                       <Mic className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Tap mic to talk</span>
+                      <span className="text-sm text-muted-foreground">Ready</span>
                     </>
                   )}
                 </div>
@@ -477,48 +361,29 @@ export const AvatarVideoCall = () => {
             {/* Call controls */}
             <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3">
               {status === 'disconnected' ? (
-                <Button
-                  variant="hero"
-                  size="lg"
-                  onClick={startConversation}
-                  className="rounded-full px-8"
-                >
+                <Button variant="hero" size="lg" onClick={startConversation} className="rounded-full px-8">
                   <Phone className="w-5 h-5 mr-2" />
                   Start Call
                 </Button>
               ) : status === 'connecting' ? (
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  disabled
-                  className="rounded-full px-8"
-                >
+                <Button variant="secondary" size="lg" disabled className="rounded-full px-8">
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   Connecting...
                 </Button>
               ) : (
                 <>
                   <Button
-                    variant={isMuted ? "destructive" : "glass"}
+                    variant={isMuted ? 'destructive' : 'glass'}
                     size="iconLg"
                     onClick={toggleMute}
                     className="rounded-full"
                   >
                     {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                   </Button>
-                  <Button
-                    variant="glass"
-                    size="iconLg"
-                    className="rounded-full"
-                  >
+                  <Button variant="glass" size="iconLg" className="rounded-full">
                     <Monitor className="w-5 h-5" />
                   </Button>
-                  <Button
-                    variant="destructive"
-                    size="iconLg"
-                    className="rounded-full"
-                    onClick={endConversation}
-                  >
+                  <Button variant="destructive" size="iconLg" className="rounded-full" onClick={endConversation}>
                     <Phone className="w-5 h-5" />
                   </Button>
                 </>
@@ -531,6 +396,9 @@ export const AvatarVideoCall = () => {
             <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50">
               <MessageSquare className="w-4 h-4 text-primary" />
               <span className="text-sm font-medium">Live Transcript</span>
+              {isListening && !isMuted && (
+                <span className="ml-auto text-xs text-green-600 animate-pulse">● Live</span>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -539,11 +407,13 @@ export const AvatarVideoCall = () => {
                   Click "Start Call" to begin talking with Aria
                 </div>
               )}
+              {messages.length === 0 && status === 'connected' && (
+                <div className="text-center text-muted-foreground text-sm py-8">
+                  Just speak naturally - Aria is listening!
+                </div>
+              )}
               {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
+                <div key={message.id} className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div
                     className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
                       message.sender === 'user'
@@ -559,10 +429,9 @@ export const AvatarVideoCall = () => {
 
             {/* Input area */}
             <div className="p-4 border-t border-border/50">
-              {isListening && (
-                <p className="text-xs text-primary mb-2 text-center animate-pulse flex items-center justify-center gap-2">
-                  <AudioLines className="w-3 h-3" />
-                  Listening... Just speak naturally
+              {status === 'connected' && !isMuted && (
+                <p className="text-xs text-green-600 mb-2 text-center">
+                  🎤 Voice active - speak anytime to interrupt!
                 </p>
               )}
               <div className="flex items-center gap-2 bg-secondary rounded-xl px-4 py-3">
@@ -571,17 +440,12 @@ export const AvatarVideoCall = () => {
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && sendTextMessage()}
-                  placeholder={status === 'connected' ? "Or type a message..." : "Connect to send messages"}
-                  disabled={status !== 'connected' || isProcessing}
+                  placeholder={status === 'connected' ? 'Or type a message...' : 'Connect to send messages'}
+                  disabled={status !== 'connected'}
                   className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
                 />
-                <Button
-                  size="sm"
-                  variant="hero"
-                  onClick={sendTextMessage}
-                  disabled={status !== 'connected' || !inputText.trim() || isProcessing}
-                >
-                  {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Send'}
+                <Button size="sm" variant="hero" onClick={sendTextMessage} disabled={status !== 'connected' || !inputText.trim()}>
+                  Send
                 </Button>
               </div>
             </div>
