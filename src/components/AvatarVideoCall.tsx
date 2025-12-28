@@ -37,11 +37,11 @@ export const AvatarVideoCall = () => {
   // Echo-prevention: track when the avatar last finished speaking + what it last said
   const lastSpeakingEndRef = useRef<number>(0);
   const lastAgentUtteranceRef = useRef<string>('');
+  const handleVoiceInputRef = useRef<(text: string) => void>(() => {});
 
-  // Start listening (guarded so we never listen while the avatar is talking/thinking)
+  // Start listening (manual: only when user taps the mic)
   const startListening = useCallback(() => {
     if (!recognitionRef.current) return;
-    if (isMuted) return;
     if (status !== 'connected') return;
     if (isProcessing || isSpeaking) return;
 
@@ -52,9 +52,19 @@ export const AvatarVideoCall = () => {
     } catch (error) {
       console.error('Error starting speech recognition:', error);
     }
-  }, [isMuted, status, isProcessing, isSpeaking]);
+  }, [status, isProcessing, isSpeaking]);
 
-  // Initialize Speech Recognition with continuous listening
+  const stopListening = useCallback(() => {
+    if (!recognitionRef.current) return;
+    try {
+      recognitionRef.current.stop();
+    } catch (e) {
+      // Ignore
+    }
+    setIsListening(false);
+  }, []);
+
+  // Initialize Speech Recognition (single-shot; no auto restart)
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -68,68 +78,36 @@ export const AvatarVideoCall = () => {
         const transcript = event.results[0][0].transcript;
         console.log('Voice input:', transcript);
         if (transcript.trim()) {
-          handleVoiceInput(transcript.trim());
+          handleVoiceInputRef.current(transcript.trim());
         }
       };
 
       recognition.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error);
         setIsListening(false);
-        // Auto-restart on certain errors if still connected
-        if (event.error === 'no-speech' || event.error === 'aborted') {
-          // Will restart in onend
-        }
       };
 
       recognition.onend = () => {
         setIsListening(false);
-        // Auto-restart listening if connected and not muted and not processing
-        if (status === 'connected' && !isMuted && !isProcessing && !isSpeaking) {
-          setTimeout(() => {
-            startListening();
-          }, 250);
-        }
       };
 
       recognitionRef.current = recognition;
     }
-  }, [status, isMuted, isProcessing, isSpeaking, startListening]);
-
-  // Auto-start listening when connected (wait longer so greeting audio never gets captured)
-  useEffect(() => {
-    if (status === 'connected' && !isMuted && !isProcessing && !isSpeaking && !isListening) {
-      const timer = setTimeout(() => {
-        startListening();
-      }, 6000);
-      return () => clearTimeout(timer);
-    }
-  }, [status, isMuted, isProcessing, isSpeaking, isListening, startListening]);
+  }, []);
 
   // Stop listening when muted
   useEffect(() => {
-    if (isMuted && recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {
-        // Ignore
-      }
-      setIsListening(false);
-    } else if (!isMuted && status === 'connected' && !isProcessing && !isSpeaking) {
-      startListening();
+    if (isMuted) {
+      stopListening();
     }
-  }, [isMuted, status, isProcessing, isSpeaking, startListening]);
+  }, [isMuted, stopListening]);
 
   // Stop listening when avatar is speaking or processing
   useEffect(() => {
-    if ((isSpeaking || isProcessing) && recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {
-        // Ignore
-      }
-      setIsListening(false);
+    if (isSpeaking || isProcessing) {
+      stopListening();
     }
-  }, [isSpeaking, isProcessing]);
+  }, [isSpeaking, isProcessing, stopListening]);
 
   // Update timestamp when avatar stops speaking
   useEffect(() => {
@@ -137,16 +115,6 @@ export const AvatarVideoCall = () => {
       lastSpeakingEndRef.current = Date.now();
     }
   }, [isSpeaking]);
-
-  // Restart listening after avatar finishes speaking with a much longer buffer (echo prevention)
-  useEffect(() => {
-    if (!isSpeaking && !isProcessing && status === 'connected' && !isMuted) {
-      const timer = setTimeout(() => {
-        startListening();
-      }, 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [isSpeaking, isProcessing, status, isMuted, startListening]);
 
   const handleVoiceInput = useCallback(
     async (transcript: string) => {
@@ -196,9 +164,23 @@ export const AvatarVideoCall = () => {
     [status, isProcessing],
   );
 
+  useEffect(() => {
+    handleVoiceInputRef.current = handleVoiceInput;
+  }, [handleVoiceInput]);
+
   const toggleMute = useCallback(() => {
-    setIsMuted((prev) => !prev);
-  }, []);
+    if (status !== 'connected') return;
+
+    if (isMuted) {
+      // Unmute and listen once (manual mode)
+      setIsMuted(false);
+      startListening();
+    } else {
+      // Mute and stop listening
+      setIsMuted(true);
+      stopListening();
+    }
+  }, [status, isMuted, startListening, stopListening]);
 
   // Audio wave animation when speaking
   useEffect(() => {
@@ -472,10 +454,20 @@ export const AvatarVideoCall = () => {
                       <Loader2 className="w-4 h-4 text-primary animate-spin" />
                       <span className="text-sm text-muted-foreground">Thinking...</span>
                     </>
-                  ) : (
+                  ) : isMuted ? (
+                    <>
+                      <MicOff className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Mic off</span>
+                    </>
+                  ) : isListening ? (
                     <>
                       <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
                       <span className="text-sm text-muted-foreground">Listening...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Tap mic to talk</span>
                     </>
                   )}
                 </div>
@@ -509,7 +501,7 @@ export const AvatarVideoCall = () => {
                   <Button
                     variant={isMuted ? "destructive" : "glass"}
                     size="iconLg"
-                    onClick={() => setIsMuted(!isMuted)}
+                    onClick={toggleMute}
                     className="rounded-full"
                   >
                     {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
