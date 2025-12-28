@@ -209,9 +209,10 @@ export class DIDClient {
           this.speechDisabledReason = 'Avatar voice is unavailable (insufficient credits).';
         }
       } else {
-        // Estimate speaking duration based on text length (roughly 150 words per minute)
-        const words = text.split(' ').length;
-        const durationMs = Math.max(3000, (words / 150) * 60 * 1000);
+        // Estimate speaking duration based on text length.
+        // Use a conservative WPM + extra padding so we don't start listening while the avatar is still talking.
+        const words = text.trim().split(/\s+/).filter(Boolean).length;
+        const durationMs = Math.max(5000, (words / 110) * 60 * 1000 + 2000);
         await new Promise((resolve) => setTimeout(resolve, durationMs));
       }
 

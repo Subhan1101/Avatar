@@ -23,9 +23,9 @@ export const AvatarVideoCall = () => {
   const [inputText, setInputText] = useState('');
   const [audioLevels, setAudioLevels] = useState([0.3, 0.5, 0.8, 0.4, 0.6]);
   const [isProcessing, setIsProcessing] = useState(false);
-  
+
   const [isListening, setIsListening] = useState(false);
-  
+
   const didRef = useRef<DIDClient | null>(null);
   const messageIdRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -34,10 +34,17 @@ export const AvatarVideoCall = () => {
   const lastProcessedRef = useRef<number>(0);
   const speechUnavailableRef = useRef(false);
 
-  // Start continuous listening
+  // Echo-prevention: track when the avatar last finished speaking + what it last said
+  const lastSpeakingEndRef = useRef<number>(0);
+  const lastAgentUtteranceRef = useRef<string>('');
+
+  // Start listening (guarded so we never listen while the avatar is talking/thinking)
   const startListening = useCallback(() => {
-    if (!recognitionRef.current || isMuted) return;
-    
+    if (!recognitionRef.current) return;
+    if (isMuted) return;
+    if (status !== 'connected') return;
+    if (isProcessing || isSpeaking) return;
+
     try {
       recognitionRef.current.start();
       setIsListening(true);
@@ -45,7 +52,7 @@ export const AvatarVideoCall = () => {
     } catch (error) {
       console.error('Error starting speech recognition:', error);
     }
-  }, [isMuted]);
+  }, [isMuted, status, isProcessing, isSpeaking]);
 
   // Initialize Speech Recognition with continuous listening
   useEffect(() => {
@@ -80,7 +87,7 @@ export const AvatarVideoCall = () => {
         if (status === 'connected' && !isMuted && !isProcessing && !isSpeaking) {
           setTimeout(() => {
             startListening();
-          }, 100);
+          }, 250);
         }
       };
 
@@ -88,12 +95,12 @@ export const AvatarVideoCall = () => {
     }
   }, [status, isMuted, isProcessing, isSpeaking, startListening]);
 
-  // Auto-start listening when connected
+  // Auto-start listening when connected (wait longer so greeting audio never gets captured)
   useEffect(() => {
     if (status === 'connected' && !isMuted && !isProcessing && !isSpeaking && !isListening) {
       const timer = setTimeout(() => {
         startListening();
-      }, 2000); // Wait 2 seconds after greeting before starting to listen
+      }, 6000);
       return () => clearTimeout(timer);
     }
   }, [status, isMuted, isProcessing, isSpeaking, isListening, startListening]);
@@ -124,9 +131,6 @@ export const AvatarVideoCall = () => {
     }
   }, [isSpeaking, isProcessing]);
 
-  // Track when avatar stopped speaking to add buffer time
-  const lastSpeakingEndRef = useRef<number>(0);
-
   // Update timestamp when avatar stops speaking
   useEffect(() => {
     if (!isSpeaking) {
@@ -134,55 +138,73 @@ export const AvatarVideoCall = () => {
     }
   }, [isSpeaking]);
 
-  // Restart listening after avatar finishes speaking with longer delay
+  // Restart listening after avatar finishes speaking with a much longer buffer (echo prevention)
   useEffect(() => {
     if (!isSpeaking && !isProcessing && status === 'connected' && !isMuted) {
-      // Wait 1.5 seconds after avatar stops speaking to avoid echo
       const timer = setTimeout(() => {
         startListening();
-      }, 1500);
+      }, 4000);
       return () => clearTimeout(timer);
     }
   }, [isSpeaking, isProcessing, status, isMuted, startListening]);
 
-  const handleVoiceInput = useCallback(async (transcript: string) => {
-    if (!transcript || status !== 'connected' || isProcessing) return;
+  const handleVoiceInput = useCallback(
+    async (transcript: string) => {
+      if (!transcript || status !== 'connected' || isProcessing) return;
 
-    // Debounce: prevent processing if we just processed something
-    const now = Date.now();
-    if (now - lastProcessedRef.current < 2000) {
-      console.log('Debouncing voice input, too soon after last request');
-      return;
-    }
+      const now = Date.now();
 
-    // Ignore voice input that comes too soon after avatar stopped speaking (echo prevention)
-    if (now - lastSpeakingEndRef.current < 1000) {
-      console.log('Ignoring voice input, too soon after avatar stopped speaking (possible echo)');
-      return;
-    }
+      // Debounce: prevent processing if we just processed something
+      if (now - lastProcessedRef.current < 2000) {
+        console.log('Debouncing voice input, too soon after last request');
+        return;
+      }
 
-    lastProcessedRef.current = now;
+      // Strong echo filter: ignore anything shortly after the avatar stops speaking
+      const msSinceSpeaking = now - lastSpeakingEndRef.current;
+      const normalized = transcript.trim().toLowerCase();
+      const words = normalized.split(/\s+/).filter(Boolean);
+      const lastAgent = lastAgentUtteranceRef.current.trim().toLowerCase();
 
-    // Add user message
-    setMessages(prev => [...prev, {
-      id: ++messageIdRef.current,
-      sender: 'user',
-      text: transcript
-    }]);
+      // 1) Ignore very short utterances right after the avatar spoke (most common echo case: "hello")
+      if (msSinceSpeaking < 8000 && words.length <= 2) {
+        console.log('Ignoring short voice input right after avatar speech (likely echo):', transcript);
+        return;
+      }
 
-    // Get AI response and make avatar speak
-    await getAIResponse(transcript);
-  }, [status, isProcessing]);
+      // 2) Ignore anything that matches words from the last agent utterance right after it spoke
+      if (msSinceSpeaking < 15000 && lastAgent && lastAgent.includes(normalized)) {
+        console.log('Ignoring voice input that matches last agent utterance (likely echo):', transcript);
+        return;
+      }
+
+      lastProcessedRef.current = now;
+
+      // Add user message
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: ++messageIdRef.current,
+          sender: 'user',
+          text: transcript,
+        },
+      ]);
+
+      // Get AI response and make avatar speak
+      await getAIResponse(transcript);
+    },
+    [status, isProcessing],
+  );
 
   const toggleMute = useCallback(() => {
-    setIsMuted(prev => !prev);
+    setIsMuted((prev) => !prev);
   }, []);
 
   // Audio wave animation when speaking
   useEffect(() => {
     if (!isSpeaking) return;
     const interval = setInterval(() => {
-      setAudioLevels(prev => prev.map(() => Math.random() * 0.7 + 0.3));
+      setAudioLevels((prev) => prev.map(() => Math.random() * 0.7 + 0.3));
     }, 150);
     return () => clearInterval(interval);
   }, [isSpeaking]);
@@ -193,78 +215,82 @@ export const AvatarVideoCall = () => {
     toast({
       variant: 'destructive',
       title: 'Avatar voice unavailable',
-      description: 'The avatar cannot speak right now (insufficient credits). Chat will continue without voice.'
+      description: 'The avatar cannot speak right now (insufficient credits). Chat will continue without voice.',
     });
   }, [toast]);
 
-  const startConversation = useCallback(async () => {
-    try {
-      setStatus('connecting');
+  const startConversation = useCallback(
+    async () => {
+      try {
+        setStatus('connecting');
 
-      if (!videoRef.current) {
-        throw new Error("Video element not found");
+        if (!videoRef.current) {
+          throw new Error('Video element not found');
+        }
+
+        console.log('Initializing D-ID avatar...');
+        didRef.current = new DIDClient(DID_AGENT_ID, {
+          onConnected: () => {
+            console.log('D-ID avatar connected');
+            setStatus('connected');
+
+            // Send initial greeting
+            setTimeout(async () => {
+              const greeting = "Hello! I'm Aria, your friendly IT support assistant. How can I help you today?";
+              lastAgentUtteranceRef.current = greeting;
+              const ok = await didRef.current?.speak(greeting);
+              if (ok === false) showSpeechUnavailable();
+
+              setMessages([
+                {
+                  id: ++messageIdRef.current,
+                  sender: 'agent',
+                  text: greeting,
+                },
+              ]);
+            }, 1000);
+          },
+          onDisconnected: () => {
+            console.log('D-ID avatar disconnected');
+            setStatus('disconnected');
+          },
+          onSpeakingStart: () => setIsSpeaking(true),
+          onSpeakingEnd: () => setIsSpeaking(false),
+          onError: (error) => {
+            console.error('D-ID error:', error);
+            toast({
+              variant: 'destructive',
+              title: 'Avatar Error',
+              description: error.message || 'Failed to initialize avatar',
+            });
+            setStatus('disconnected');
+          },
+          onStreamReady: (stream) => {
+            console.log('Stream ready');
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+            }
+          },
+        });
+
+        await didRef.current.init(videoRef.current);
+
+        toast({
+          title: 'Connected',
+          description: 'AI Support Agent Aria is ready to help!',
+        });
+      } catch (error) {
+        console.error('Error starting conversation:', error);
+        setStatus('disconnected');
+        toast({
+          variant: 'destructive',
+          title: 'Connection Failed',
+          description: error instanceof Error ? error.message : 'Failed to start conversation',
+        });
       }
-
-      console.log('Initializing D-ID avatar...');
-      didRef.current = new DIDClient(DID_AGENT_ID, {
-        onConnected: () => {
-          console.log('D-ID avatar connected');
-          setStatus('connected');
-          
-          // Send initial greeting
-          setTimeout(async () => {
-            const greeting = "Hello! I'm Aria, your friendly IT support assistant. How can I help you today?";
-            const ok = await didRef.current?.speak(greeting);
-            if (ok === false) showSpeechUnavailable();
-
-            setMessages([
-              {
-                id: ++messageIdRef.current,
-                sender: 'agent',
-                text: greeting,
-              },
-            ]);
-          }, 1000);
-        },
-        onDisconnected: () => {
-          console.log('D-ID avatar disconnected');
-          setStatus('disconnected');
-        },
-        onSpeakingStart: () => setIsSpeaking(true),
-        onSpeakingEnd: () => setIsSpeaking(false),
-        onError: (error) => {
-          console.error('D-ID error:', error);
-          toast({
-            variant: 'destructive',
-            title: 'Avatar Error',
-            description: error.message || 'Failed to initialize avatar'
-          });
-          setStatus('disconnected');
-        },
-        onStreamReady: (stream) => {
-          console.log('Stream ready');
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-        },
-      });
-
-      await didRef.current.init(videoRef.current);
-
-      toast({
-        title: 'Connected',
-        description: 'AI Support Agent Aria is ready to help!'
-      });
-    } catch (error) {
-      console.error('Error starting conversation:', error);
-      setStatus('disconnected');
-      toast({
-        variant: 'destructive',
-        title: 'Connection Failed',
-        description: error instanceof Error ? error.message : 'Failed to start conversation'
-      });
-    }
-  }, [toast, showSpeechUnavailable]);
+    },
+    [toast, showSpeechUnavailable],
+  );
 
   const endConversation = useCallback(() => {
     didRef.current?.disconnect();
@@ -274,49 +300,59 @@ export const AvatarVideoCall = () => {
     setMessages([]);
     toast({
       title: 'Disconnected',
-      description: 'Session ended'
+      description: 'Session ended',
     });
   }, [toast]);
 
   // Get AI response and make avatar speak it
-  const getAIResponse = useCallback(async (userMessage: string) => {
-    setIsProcessing(true);
-    
-    try {
-      // Use Lovable AI to generate response
-      const { data, error } = await supabase.functions.invoke('ai-chat', {
-        body: { message: userMessage }
-      });
+  const getAIResponse = useCallback(
+    async (userMessage: string) => {
+      setIsProcessing(true);
 
-      if (error) throw error;
+      try {
+        // Use Lovable AI to generate response
+        const { data, error } = await supabase.functions.invoke('ai-chat', {
+          body: { message: userMessage },
+        });
 
-      const aiResponse = data?.response || "I'm sorry, I couldn't process that. Could you please try again?";
-      
-      // Add AI response to messages
-      setMessages(prev => [...prev, {
-        id: ++messageIdRef.current,
-        sender: 'agent',
-        text: aiResponse
-      }]);
+        if (error) throw error;
 
-      // Make avatar speak the response with lip-sync
-      const ok = await didRef.current?.speak(aiResponse);
-      if (ok === false) showSpeechUnavailable();
+        const aiResponse = data?.response || "I'm sorry, I couldn't process that. Could you please try again?";
 
-    } catch (error) {
-      console.error('Error getting AI response:', error);
-      const errorMessage = "I'm having trouble connecting right now. Please try again.";
-      setMessages(prev => [...prev, {
-        id: ++messageIdRef.current,
-        sender: 'agent',
-        text: errorMessage
-      }]);
-      const ok = await didRef.current?.speak(errorMessage);
-      if (ok === false) showSpeechUnavailable();
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [showSpeechUnavailable]);
+        // Add AI response to messages
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: ++messageIdRef.current,
+            sender: 'agent',
+            text: aiResponse,
+          },
+        ]);
+
+        // Make avatar speak the response with lip-sync
+        lastAgentUtteranceRef.current = aiResponse;
+        const ok = await didRef.current?.speak(aiResponse);
+        if (ok === false) showSpeechUnavailable();
+      } catch (error) {
+        console.error('Error getting AI response:', error);
+        const errorMessage = "I'm having trouble connecting right now. Please try again.";
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: ++messageIdRef.current,
+            sender: 'agent',
+            text: errorMessage,
+          },
+        ]);
+        lastAgentUtteranceRef.current = errorMessage;
+        const ok = await didRef.current?.speak(errorMessage);
+        if (ok === false) showSpeechUnavailable();
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [showSpeechUnavailable],
+  );
 
   const sendTextMessage = useCallback(async () => {
     if (!inputText.trim() || status !== 'connected' || isProcessing) return;
