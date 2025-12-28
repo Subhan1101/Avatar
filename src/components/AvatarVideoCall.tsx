@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Mic, MicOff, Phone, Monitor, MonitorOff, MessageSquare, Volume2, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Phone, Monitor, MonitorOff, MessageSquare, Volume2, Loader2, Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { DIDClient } from '@/utils/DIDClient';
 import { RealtimeChat } from '@/utils/RealtimeAudio';
+import { supabase } from '@/integrations/supabase/client';
 
 // Your D-ID Agent ID
 const DID_AGENT_ID = 'v2_agt_FsyLjsn-';
@@ -24,7 +25,10 @@ export const AvatarVideoCall = () => {
   const [audioLevels, setAudioLevels] = useState([0.3, 0.5, 0.8, 0.4, 0.6]);
   const [isListening, setIsListening] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; type: string; data: string } | null>(null);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const didRef = useRef<DIDClient | null>(null);
   const realtimeChatRef = useRef<RealtimeChat | null>(null);
   const messageIdRef = useRef(0);
@@ -358,6 +362,157 @@ export const AvatarVideoCall = () => {
     }
   }, [isScreenSharing, toast, captureAndAnalyzeScreen]);
 
+  // Handle file upload
+  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        variant: 'destructive',
+        title: 'File too large',
+        description: 'Please upload a file smaller than 10MB',
+      });
+      return;
+    }
+
+    // Supported file types
+    const supportedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain'
+    ];
+
+    if (!supportedTypes.includes(file.type) && !file.name.endsWith('.txt')) {
+      toast({
+        variant: 'destructive',
+        title: 'Unsupported file type',
+        description: 'Please upload an image (JPG, PNG), PDF, Word document, or text file',
+      });
+      return;
+    }
+
+    setIsProcessingFile(true);
+
+    try {
+      const reader = new FileReader();
+      
+      reader.onload = async () => {
+        const result = reader.result as string;
+        
+        if (file.type.startsWith('image/')) {
+          // For images, store the base64 data URL directly
+          setUploadedFile({
+            name: file.name,
+            type: file.type,
+            data: result
+          });
+        } else if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+          // For text files, extract the text content
+          setUploadedFile({
+            name: file.name,
+            type: 'text/plain',
+            data: result.replace(/^data:.*?;base64,/, '') // Remove data URL prefix and decode
+          });
+        } else {
+          // For PDF and other documents, store as base64 for AI processing
+          // The AI will try to analyze the content
+          setUploadedFile({
+            name: file.name,
+            type: file.type,
+            data: result
+          });
+        }
+
+        toast({
+          title: 'File uploaded',
+          description: `${file.name} is ready. Send a message to ask about it!`,
+        });
+      };
+
+      reader.onerror = () => {
+        throw new Error('Failed to read file');
+      };
+
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('File upload error:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Upload failed',
+        description: 'Could not process the file. Please try again.',
+      });
+    } finally {
+      setIsProcessingFile(false);
+      // Reset input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }, [toast]);
+
+  // Send message with optional file
+  const sendMessageWithFile = useCallback(async () => {
+    if (status !== 'connected') return;
+    if (!inputText.trim() && !uploadedFile) return;
+
+    const userMessage = inputText.trim();
+    const fileToSend = uploadedFile;
+    
+    setInputText('');
+    setUploadedFile(null);
+
+    // Add user message to chat
+    const displayText = fileToSend 
+      ? `${userMessage ? userMessage + '\n' : ''}📎 ${fileToSend.name}`
+      : userMessage;
+    
+    setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'user', text: displayText }]);
+
+    try {
+      // Call AI chat function with file data
+      const { data, error } = await supabase.functions.invoke('ai-chat', {
+        body: {
+          message: userMessage || 'Please analyze this file and help me with it.',
+          fileData: fileToSend?.data,
+          fileType: fileToSend?.type,
+          fileName: fileToSend?.name
+        }
+      });
+
+      if (error) throw error;
+
+      const aiResponse = data?.response || "I'm sorry, I couldn't process that.";
+      
+      // Add AI response to messages
+      setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'agent', text: aiResponse }]);
+      
+      // Make D-ID avatar speak the response (truncate for speech)
+      const speechText = aiResponse.length > 500 
+        ? aiResponse.substring(0, 500) + "... I've provided more details in the chat."
+        : aiResponse;
+      
+      const ok = await didRef.current?.speak(speechText);
+      if (ok === false) showSpeechUnavailable();
+
+    } catch (error) {
+      console.error('Error processing message:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to process your request. Please try again.',
+      });
+    }
+  }, [status, inputText, uploadedFile, toast, showSpeechUnavailable]);
+
+  // Remove uploaded file
+  const removeUploadedFile = useCallback(() => {
+    setUploadedFile(null);
+  }, []);
+
   useEffect(() => {
     return () => {
       realtimeChatRef.current?.disconnect();
@@ -560,17 +715,66 @@ export const AvatarVideoCall = () => {
                   🎤 Voice active - speak anytime to interrupt!
                 </p>
               )}
-              <div className="flex items-center gap-2 bg-secondary rounded-xl px-4 py-3">
+              
+              {/* Uploaded file preview */}
+              {uploadedFile && (
+                <div className="mb-2 flex items-center gap-2 bg-primary/10 rounded-lg px-3 py-2">
+                  {uploadedFile.type.startsWith('image/') ? (
+                    <ImageIcon className="w-4 h-4 text-primary" />
+                  ) : (
+                    <FileText className="w-4 h-4 text-primary" />
+                  )}
+                  <span className="text-sm text-foreground flex-1 truncate">{uploadedFile.name}</span>
+                  <button
+                    onClick={removeUploadedFile}
+                    className="p-1 hover:bg-destructive/20 rounded-full transition-colors"
+                  >
+                    <X className="w-4 h-4 text-destructive" />
+                  </button>
+                </div>
+              )}
+              
+              <div className="flex items-center gap-2 bg-secondary rounded-xl px-3 py-2">
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,.pdf,.doc,.docx,.txt"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                
+                {/* File upload button */}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={status !== 'connected' || isProcessingFile}
+                  className="shrink-0"
+                  title="Upload file (PDF, Image, Word, Text)"
+                >
+                  {isProcessingFile ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Paperclip className="w-4 h-4" />
+                  )}
+                </Button>
+                
                 <input
                   type="text"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && sendTextMessage()}
-                  placeholder={status === 'connected' ? 'Or type a message...' : 'Connect to send messages'}
+                  onKeyDown={(e) => e.key === 'Enter' && sendMessageWithFile()}
+                  placeholder={uploadedFile ? 'Ask about the file...' : (status === 'connected' ? 'Or type a message...' : 'Connect to send messages')}
                   disabled={status !== 'connected'}
                   className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
                 />
-                <Button size="sm" variant="hero" onClick={sendTextMessage} disabled={status !== 'connected' || !inputText.trim()}>
+                <Button 
+                  size="sm" 
+                  variant="hero" 
+                  onClick={sendMessageWithFile} 
+                  disabled={status !== 'connected' || (!inputText.trim() && !uploadedFile)}
+                >
                   Send
                 </Button>
               </div>

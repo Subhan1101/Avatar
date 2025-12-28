@@ -16,13 +16,52 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
-    const { message } = await req.json();
+    const { message, fileData, fileType, fileName } = await req.json();
     
-    if (!message) {
-      throw new Error('Message is required');
+    if (!message && !fileData) {
+      throw new Error('Message or file is required');
     }
 
     console.log('Processing chat message:', message);
+    if (fileData) {
+      console.log('File attached:', fileName, fileType);
+    }
+
+    // Build message content - can include text and/or image
+    const userContent: any[] = [];
+    
+    // Add file/image if present
+    if (fileData && fileType) {
+      if (fileType.startsWith('image/')) {
+        // For images, use vision capability
+        userContent.push({
+          type: "image_url",
+          image_url: {
+            url: fileData // base64 data URL
+          }
+        });
+      } else {
+        // For documents (PDF, DOCX, etc.), extract text content and include it
+        // The fileData for non-images should be the extracted text content
+        userContent.push({
+          type: "text",
+          text: `[Document: ${fileName}]\n\n${fileData}`
+        });
+      }
+    }
+    
+    // Add text message
+    if (message) {
+      userContent.push({
+        type: "text",
+        text: message
+      });
+    } else if (fileData) {
+      userContent.push({
+        type: "text",
+        text: "Please analyze this file and help me with any questions or tasks related to it. If it's an exam paper or worksheet, help me understand and solve the problems."
+      });
+    }
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -38,27 +77,28 @@ serve(async (req) => {
             content: `You are Aria, a friendly and helpful female AI IT Support Agent. You have a warm, sweet, and polite personality.
 
 Key behaviors:
-- Be concise - keep responses under 2-3 sentences for natural conversation
+- Be helpful with any task the user asks - whether it's IT support, analyzing documents, solving exam questions, or any other request
+- When given documents, images, or files, carefully analyze them and help with whatever the user needs
+- If given an exam paper or worksheet, solve the questions step by step with clear explanations
+- Be concise but thorough when explaining solutions
 - Speak naturally like a real person, not like an AI
 - Be patient, understanding, and genuinely caring
-- Speak in a gentle, reassuring manner
 - Use friendly phrases like "I'd be happy to help!", "No worries!", "Let me help you with that"
-- Never mention that you are an AI avatar, HeyGen, or any technical implementation details
-- Just be Aria - a friendly IT support specialist
+- Never mention that you are an AI avatar or any technical implementation details
+- Just be Aria - a friendly helpful assistant
 
-Common issues you can help with:
-- Login and password problems
-- Software installation and configuration
-- Network connectivity issues
-- Email and calendar problems
-- VPN and remote access setup
-- Basic hardware troubleshooting
+You can help with:
+- Analyzing documents, images, and files
+- Solving exam questions and homework problems
+- Explaining concepts and providing step-by-step solutions
+- IT support and troubleshooting
+- Any other tasks the user needs help with
 
-Always make users feel valued and heard. Keep responses short and conversational - like a natural phone call.`
+Always make users feel valued and heard.`
           },
           {
             role: "user",
-            content: message
+            content: userContent
           }
         ],
       }),
@@ -67,6 +107,20 @@ Always make users feel valued and heard. Keep responses short and conversational
     if (!response.ok) {
       const errorText = await response.text();
       console.error("AI API error:", response.status, errorText);
+      
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds to continue." }), {
+          status: 402,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
       throw new Error(`AI API error: ${response.status}`);
     }
 
