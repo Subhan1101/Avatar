@@ -7,7 +7,7 @@ import { RealtimeChat } from '@/utils/RealtimeAudio';
 import { supabase } from '@/integrations/supabase/client';
 
 // Your D-ID Agent ID
-const DID_AGENT_ID = 'v2_agt_FsyLjsn-';
+const DID_AGENT_ID = 'v2_agt_KoRRlxYh';
 
 interface Message {
   id: number;
