@@ -209,14 +209,13 @@ export class RealtimeChat {
 
     switch (event.type) {
       case 'session.created':
-        console.log('Session created, configuring...');
-        // Configure the session with female voice to match avatar
+        console.log('Session created, configuring with improved settings...');
+        // Configure session with better VAD and response settings
         this.ws?.send(JSON.stringify({
           type: 'session.update',
           session: {
             modalities: ['text', 'audio'],
-            instructions: 'You are a helpful AI IT Support Agent. Be concise, friendly and helpful. Speak in a warm, professional tone.',
-            voice: 'shimmer', // Female voice to match the avatar
+            voice: 'shimmer',
             input_audio_format: 'pcm16',
             output_audio_format: 'pcm16',
             input_audio_transcription: {
@@ -224,11 +223,13 @@ export class RealtimeChat {
             },
             turn_detection: {
               type: 'server_vad',
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 1000
+              threshold: 0.6, // Higher threshold to reduce false triggers
+              prefix_padding_ms: 400, // More padding for cleaner audio
+              silence_duration_ms: 800, // Faster response after user stops speaking
+              create_response: true // Auto-create response when speech ends
             },
-            temperature: 0.8
+            temperature: 0.7, // Slightly lower for more consistent responses
+            max_response_output_tokens: 500 // Limit response length for faster replies
           }
         }));
         break;
