@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Mic, MicOff, Phone, Monitor, MonitorOff, MessageSquare, Volume2, Loader2, Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
+import { Mic, MicOff, Phone, Monitor, MonitorOff, MessageSquare, Volume2, Loader2, Paperclip, X, FileText, Image as ImageIcon, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { DIDClient } from '@/utils/DIDClient';
-import { RealtimeChat } from '@/utils/RealtimeAudio';
+import { RealtimeChat, AudioSettings } from '@/utils/RealtimeAudio';
 import { supabase } from '@/integrations/supabase/client';
+import { useNetworkQuality, getOptimalAudioSettings, NetworkQuality } from '@/hooks/useNetworkQuality';
 
 // Your D-ID Agent ID
 const DID_AGENT_ID = 'v2_agt_KoRRlxYh';
@@ -15,10 +16,31 @@ interface Message {
   text: string;
 }
 
+const getNetworkStatusColor = (quality: NetworkQuality) => {
+  switch (quality) {
+    case 'excellent': return 'text-green-500';
+    case 'good': return 'text-green-400';
+    case 'fair': return 'text-yellow-500';
+    case 'poor': return 'text-orange-500';
+    case 'offline': return 'text-destructive';
+  }
+};
+
+const getNetworkStatusText = (quality: NetworkQuality) => {
+  switch (quality) {
+    case 'excellent': return 'Excellent connection';
+    case 'good': return 'Good connection';
+    case 'fair': return 'Fair connection';
+    case 'poor': return 'Weak connection';
+    case 'offline': return 'Offline';
+  }
+};
+
 export const AvatarVideoCall = () => {
   const { toast } = useToast();
+  const networkInfo = useNetworkQuality();
   const [isMuted, setIsMuted] = useState(false);
-  const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'reconnecting'>('disconnected');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -27,6 +49,7 @@ export const AvatarVideoCall = () => {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<{ name: string; type: string; data: string } | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [networkIssueMessage, setNetworkIssueMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const didRef = useRef<DIDClient | null>(null);
@@ -58,12 +81,59 @@ export const AvatarVideoCall = () => {
     });
   }, [toast]);
 
+  // Clear network issue messages after a delay
+  useEffect(() => {
+    if (networkIssueMessage) {
+      const timer = setTimeout(() => setNetworkIssueMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [networkIssueMessage]);
+
+  // Show warning toast when network quality drops
+  useEffect(() => {
+    if (status === 'connected' && networkInfo.quality === 'poor') {
+      toast({
+        title: 'Slow Connection Detected',
+        description: 'Your connection is slow. Audio quality may be affected.',
+        duration: 4000,
+      });
+    }
+    if (networkInfo.quality === 'offline' && status === 'connected') {
+      toast({
+        variant: 'destructive',
+        title: 'Connection Lost',
+        description: 'You are offline. Trying to reconnect when network is available...',
+      });
+    }
+  }, [networkInfo.quality, status, toast]);
+
+  // Update audio settings when network quality changes
+  useEffect(() => {
+    if (realtimeChatRef.current && status === 'connected') {
+      const newSettings = getOptimalAudioSettings(networkInfo.quality);
+      realtimeChatRef.current.updateAudioSettings(newSettings);
+    }
+  }, [networkInfo.quality, status]);
+
   const startConversation = useCallback(async () => {
     try {
       setStatus('connecting');
 
       if (!videoRef.current) {
         throw new Error('Video element not found');
+      }
+
+      // Check network quality before starting
+      if (networkInfo.quality === 'offline') {
+        throw new Error('You are offline. Please check your internet connection.');
+      }
+
+      if (networkInfo.quality === 'poor') {
+        toast({
+          title: 'Slow Connection',
+          description: 'Your connection is slow. The call may take longer to connect.',
+          duration: 4000,
+        });
       }
 
       console.log('Initializing D-ID avatar...');
@@ -73,14 +143,17 @@ export const AvatarVideoCall = () => {
         onConnected: async () => {
           console.log('D-ID avatar connected, now starting OpenAI Realtime...');
 
-          // Now start OpenAI Realtime for voice
+          // Now start OpenAI Realtime for voice with network-optimized settings
           try {
+            const audioSettings = getOptimalAudioSettings(networkInfo.quality);
+            
             realtimeChatRef.current = new RealtimeChat({
               onStatusChange: (s) => {
                 console.log('Realtime status:', s);
                 if (s === 'connected') {
                   setStatus('connected');
                   setIsListening(true);
+                  setNetworkIssueMessage(null);
 
                   // Send initial greeting via D-ID
                   setTimeout(async () => {
@@ -91,6 +164,9 @@ export const AvatarVideoCall = () => {
                   }, 500);
                 } else if (s === 'disconnected') {
                   setIsListening(false);
+                  setStatus('disconnected');
+                } else if (s === 'reconnecting') {
+                  setStatus('reconnecting');
                 }
               },
               onSpeakingChange: (speaking) => {
@@ -141,10 +217,18 @@ export const AvatarVideoCall = () => {
                 toast({
                   variant: 'destructive',
                   title: 'Voice Error',
-                  description: 'Voice connection error. Please try again.',
+                  description: 'Voice connection error. Attempting to reconnect...',
                 });
               },
-            });
+              onNetworkIssue: (message) => {
+                setNetworkIssueMessage(message);
+                toast({
+                  title: 'Connection Issue',
+                  description: message,
+                  duration: 3000,
+                });
+              },
+            }, audioSettings);
 
             await realtimeChatRef.current.init();
           } catch (error) {
@@ -533,26 +617,39 @@ export const AvatarVideoCall = () => {
               className={`w-3 h-3 rounded-full ${
                 status === 'connected'
                   ? 'bg-primary animate-pulse'
-                  : status === 'connecting'
+                  : status === 'connecting' || status === 'reconnecting'
                   ? 'bg-yellow-500 animate-pulse'
                   : 'bg-muted-foreground'
               }`}
             />
             <span className="text-sm font-medium text-foreground">AI IT Support Agent - Aria</span>
             <span className="text-xs text-muted-foreground">
-              • {status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting...' : 'Disconnected'}
+              • {status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting...' : status === 'reconnecting' ? 'Reconnecting...' : 'Disconnected'}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <Volume2 className="w-4 h-4 text-muted-foreground" />
-            <div className="flex items-end gap-0.5 h-4">
-              {audioLevels.map((level, i) => (
-                <div
-                  key={i}
-                  className={`w-1 rounded-full transition-all duration-150 ${isSpeaking ? 'bg-primary' : 'bg-muted-foreground/30'}`}
-                  style={{ height: isSpeaking ? `${level * 100}%` : '30%' }}
-                />
-              ))}
+          <div className="flex items-center gap-4">
+            {/* Network Quality Indicator */}
+            <div className="flex items-center gap-1.5" title={getNetworkStatusText(networkInfo.quality)}>
+              {networkInfo.quality === 'offline' ? (
+                <WifiOff className={`w-4 h-4 ${getNetworkStatusColor(networkInfo.quality)}`} />
+              ) : (
+                <Wifi className={`w-4 h-4 ${getNetworkStatusColor(networkInfo.quality)}`} />
+              )}
+              <span className={`text-xs ${getNetworkStatusColor(networkInfo.quality)}`}>
+                {networkInfo.quality === 'excellent' || networkInfo.quality === 'good' ? '' : getNetworkStatusText(networkInfo.quality)}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Volume2 className="w-4 h-4 text-muted-foreground" />
+              <div className="flex items-end gap-0.5 h-4">
+                {audioLevels.map((level, i) => (
+                  <div
+                    key={i}
+                    className={`w-1 rounded-full transition-all duration-150 ${isSpeaking ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                    style={{ height: isSpeaking ? `${level * 100}%` : '30%' }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -575,12 +672,16 @@ export const AvatarVideoCall = () => {
 
               {/* Placeholder when not connected */}
               {status !== 'connected' && (
-                <div className={`flex items-center justify-center transition-all ${status === 'connecting' ? 'animate-pulse' : ''}`}>
-                  {status === 'connecting' ? (
+                <div className={`flex items-center justify-center transition-all ${status === 'connecting' || status === 'reconnecting' ? 'animate-pulse' : ''}`}>
+                  {status === 'connecting' || status === 'reconnecting' ? (
                     <div className="text-center">
                       <Loader2 className="w-16 h-16 text-primary animate-spin mx-auto mb-4" />
-                      <p className="text-muted-foreground">Initializing avatar...</p>
-                      <p className="text-muted-foreground/60 text-sm mt-2">This may take a moment</p>
+                      <p className="text-muted-foreground">
+                        {status === 'reconnecting' ? 'Reconnecting...' : 'Initializing avatar...'}
+                      </p>
+                      <p className="text-muted-foreground/60 text-sm mt-2">
+                        {networkIssueMessage || (status === 'reconnecting' ? 'Please wait while we restore your connection' : 'This may take a moment')}
+                      </p>
                     </div>
                   ) : (
                     <div className="text-center">
