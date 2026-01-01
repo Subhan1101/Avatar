@@ -368,40 +368,48 @@ export class RealtimeChat {
     switch (event.type) {
       case 'session.created':
         console.log('Session created, configuring with network-optimized settings...');
-        // Configure session with network-adaptive VAD and response settings
-        this.ws?.send(JSON.stringify({
-          type: 'session.update',
-          session: {
-            modalities: ['text', 'audio'],
-            voice: 'shimmer',
-            input_audio_format: 'pcm16',
-            output_audio_format: 'pcm16',
-            // NOTE: We intentionally do NOT enable Whisper input transcription here.
-            // It can hit rate limits (429) and is not required for audio-to-audio responses.
-            turn_detection: {
-              type: 'server_vad',
-              threshold: this.audioSettings.threshold,
-              prefix_padding_ms: this.audioSettings.prefixPadding,
-              silence_duration_ms: this.audioSettings.silenceDuration,
-              create_response: true
+        // Configure session: audio IN + text OUT (we use D-ID for voice), with server VAD.
+        this.ws?.send(
+          JSON.stringify({
+            type: 'session.update',
+            session: {
+              modalities: ['text'],
+              input_audio_format: 'pcm16',
+              // We don't need OpenAI audio output; D-ID speaks the text.
+              // Keeping output text makes response.done reliably contain text.
+              turn_detection: {
+                type: 'server_vad',
+                threshold: this.audioSettings.threshold,
+                prefix_padding_ms: this.audioSettings.prefixPadding,
+                silence_duration_ms: this.audioSettings.silenceDuration,
+                create_response: true,
+              },
+              temperature: 0.7,
+              max_response_output_tokens: 500,
             },
-            temperature: 0.7,
-            max_response_output_tokens: 500
-          }
-        }));
+          })
+        );
+        break;
+
+      case 'response.created':
+        // Text responses start streaming
+        this.callbacks.onSpeakingChange?.(true);
+        break;
+
+      case 'response.done':
+        // Response fully finished
+        this.callbacks.onSpeakingChange?.(false);
         break;
 
       case 'response.audio.delta':
-        // This is the key - we receive audio data here and send to Simli
+        // If audio is present anyway, forward it (some models/settings may still emit it)
         if (event.delta) {
           const audioData = decodeAudioFromAPI(event.delta);
           this.callbacks.onAudioData?.(audioData);
         }
-        this.callbacks.onSpeakingChange?.(true);
         break;
 
       case 'response.audio.done':
-        this.callbacks.onSpeakingChange?.(false);
         break;
 
       case 'response.audio_transcript.delta':
