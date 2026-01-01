@@ -406,9 +406,21 @@ export class RealtimeChat {
         }
         break;
 
+      case 'conversation.item.input_audio_transcription.failed':
+        // Transcription failed but OpenAI may still process audio
+        console.warn('Audio transcription failed:', event);
+        // Don't treat as fatal error - the model can still respond to audio
+        break;
+
       case 'error':
         console.error('Realtime API error:', event);
-        this.callbacks.onError?.(new Error(JSON.stringify(event)));
+        // Only report critical errors
+        if (event.error && typeof event.error === 'object') {
+          const errorObj = event.error as { type?: string; message?: string };
+          if (errorObj.type !== 'invalid_request_error') {
+            this.callbacks.onError?.(new Error(errorObj.message || JSON.stringify(event)));
+          }
+        }
         break;
     }
   }

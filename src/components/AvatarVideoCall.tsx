@@ -197,6 +197,27 @@ export const AvatarVideoCall = () => {
                   currentTranscriptRef.current = '';
                 }
 
+                // Fallback: Extract response from response.done if transcript wasn't captured
+                if (event.type === 'response.done') {
+                  const response = event.response as { output?: Array<{ content?: Array<{ transcript?: string; text?: string }> }> } | undefined;
+                  if (response?.output) {
+                    for (const item of response.output) {
+                      if (item.content) {
+                        for (const content of item.content) {
+                          const text = content.transcript || content.text;
+                          if (text && !currentTranscriptRef.current) {
+                            // Only use this if we didn't get transcript from deltas
+                            console.log('Using response.done fallback for text:', text.substring(0, 50));
+                            setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'agent', text }]);
+                            const ok = await didRef.current?.speak(text);
+                            if (ok === false) showSpeechUnavailable();
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+
                 // When user finishes speaking, add their message
                 if (event.type === 'conversation.item.input_audio_transcription.completed') {
                   const userText = (event.transcript as string)?.trim();
@@ -204,6 +225,15 @@ export const AvatarVideoCall = () => {
                     setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'user', text: userText }]);
                   }
                   pendingUserTranscriptRef.current = '';
+                }
+
+                // Handle transcription failure - still show user spoke
+                if (event.type === 'conversation.item.input_audio_transcription.failed') {
+                  console.log('Transcription failed but model may still respond');
+                  // Add a placeholder to show user spoke
+                  if (!pendingUserTranscriptRef.current) {
+                    setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'user', text: '(Voice input - transcription unavailable)' }]);
+                  }
                 }
 
                 // Handle interruption - user started speaking while assistant was talking
