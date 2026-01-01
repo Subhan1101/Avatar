@@ -410,6 +410,14 @@ export class RealtimeChat {
         }
         break;
 
+      // Some sessions emit text deltas instead of audio transcript deltas.
+      case 'response.text.delta':
+      case 'response.output_text.delta':
+        if (event.delta) {
+          this.callbacks.onTranscript?.(event.delta, 'assistant');
+        }
+        break;
+
       case 'conversation.item.input_audio_transcription.completed':
         if (event.transcript) {
           this.callbacks.onTranscript?.(event.transcript as string, 'user');
