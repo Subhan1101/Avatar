@@ -35,6 +35,7 @@ export class AudioRecorder {
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
+  private outputGain: GainNode | null = null;
   private bufferSize: number;
 
   constructor(
@@ -52,13 +53,18 @@ export class AudioRecorder {
           channelCount: 1,
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
-        }
+          autoGainControl: true,
+        },
       });
 
       this.audioContext = new AudioContext({ sampleRate: 24000 });
       this.source = this.audioContext.createMediaStreamSource(this.stream);
       this.processor = this.audioContext.createScriptProcessor(this.bufferSize, 1, 1);
+
+      // Important: avoid routing mic audio to speakers (feedback loop).
+      // ScriptProcessor must be connected in the graph to run, so we connect to a muted gain node.
+      this.outputGain = this.audioContext.createGain();
+      this.outputGain.gain.value = 0;
 
       this.processor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
@@ -66,7 +72,8 @@ export class AudioRecorder {
       };
 
       this.source.connect(this.processor);
-      this.processor.connect(this.audioContext.destination);
+      this.processor.connect(this.outputGain);
+      this.outputGain.connect(this.audioContext.destination);
     } catch (error) {
       console.error('Error accessing microphone:', error);
       throw error;
@@ -76,10 +83,14 @@ export class AudioRecorder {
   stop() {
     this.source?.disconnect();
     this.processor?.disconnect();
-    this.stream?.getTracks().forEach(track => track.stop());
+    this.outputGain?.disconnect();
+
+    this.stream?.getTracks().forEach((track) => track.stop());
     this.audioContext?.close();
+
     this.source = null;
     this.processor = null;
+    this.outputGain = null;
     this.stream = null;
     this.audioContext = null;
   }
@@ -365,9 +376,8 @@ export class RealtimeChat {
             voice: 'shimmer',
             input_audio_format: 'pcm16',
             output_audio_format: 'pcm16',
-            input_audio_transcription: {
-              model: 'whisper-1'
-            },
+            // NOTE: We intentionally do NOT enable Whisper input transcription here.
+            // It can hit rate limits (429) and is not required for audio-to-audio responses.
             turn_detection: {
               type: 'server_vad',
               threshold: this.audioSettings.threshold,

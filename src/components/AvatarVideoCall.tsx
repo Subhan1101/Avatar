@@ -54,6 +54,7 @@ export const AvatarVideoCall = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const didRef = useRef<DIDClient | null>(null);
   const realtimeChatRef = useRef<RealtimeChat | null>(null);
+  const isMutedRef = useRef(false);
   const messageIdRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
@@ -61,6 +62,10 @@ export const AvatarVideoCall = () => {
   const speechUnavailableRef = useRef(false);
   const currentTranscriptRef = useRef<string>('');
   const pendingUserTranscriptRef = useRef<string>('');
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
 
   // Audio wave animation when speaking
   useEffect(() => {
@@ -277,10 +282,16 @@ export const AvatarVideoCall = () => {
           realtimeChatRef.current?.disconnect();
         },
         onSpeakingStart: () => {
-          // D-ID speaking state is controlled by our calls, not needed here
+          // Prevent echo-loop: don't capture mic while the avatar is speaking
+          realtimeChatRef.current?.setMuted(true);
+          setIsListening(false);
         },
         onSpeakingEnd: () => {
-          // D-ID speaking state is controlled by our calls
+          window.setTimeout(() => {
+            // Respect the user's mute toggle
+            realtimeChatRef.current?.setMuted(isMutedRef.current);
+            setIsListening(!isMutedRef.current);
+          }, 600);
         },
         onError: (error) => {
           console.error('D-ID error:', error);
