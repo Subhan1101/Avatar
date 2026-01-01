@@ -210,9 +210,10 @@ export class DIDClient {
         }
       } else {
         // Estimate speaking duration based on text length.
-        // Use a conservative WPM + extra padding so we don't start listening while the avatar is still talking.
+        // Keep this short to avoid muting the user's mic for too long after greetings.
         const words = text.trim().split(/\s+/).filter(Boolean).length;
-        const durationMs = Math.max(5000, (words / 110) * 60 * 1000 + 2000);
+        const estimatedMs = (words / 170) * 60 * 1000 + 800; // ~170 WPM + small padding
+        const durationMs = Math.min(20000, Math.max(1500, estimatedMs));
         await new Promise((resolve) => setTimeout(resolve, durationMs));
       }
 
