@@ -55,6 +55,7 @@ export const AvatarVideoCall = () => {
   const didRef = useRef<DIDClient | null>(null);
   const realtimeChatRef = useRef<RealtimeChat | null>(null);
   const isMutedRef = useRef(false);
+  const lastAgentTextRef = useRef<string>('');
   const messageIdRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
@@ -189,41 +190,70 @@ export const AvatarVideoCall = () => {
                 }
               },
               onMessage: async (event) => {
-                // When assistant response is complete, add to messages and make D-ID speak
+                const evt = event as any;
+
+                const speakAgentText = async (rawText: string) => {
+                  const text = rawText.replace(/\s+/g, ' ').trim();
+                  if (!text) return;
+                  if (lastAgentTextRef.current === text) return;
+
+                  lastAgentTextRef.current = text;
+                  setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'agent', text }]);
+
+                  const ok = await didRef.current?.speak(text);
+                  if (ok === false) showSpeechUnavailable();
+                };
+
+                const extractAssistantTextFromResponseDone = (): string | null => {
+                  const resp = evt?.response;
+                  if (!resp) return null;
+
+                  // Some shapes include a direct field
+                  const direct =
+                    (typeof resp.output_text === 'string' && resp.output_text) ||
+                    (typeof resp.text === 'string' && resp.text) ||
+                    null;
+                  if (direct) return direct;
+
+                  const parts: string[] = [];
+                  const output = Array.isArray(resp.output) ? resp.output : [];
+                  for (const item of output) {
+                    const content = Array.isArray(item?.content) ? item.content : [];
+                    for (const c of content) {
+                      if (typeof c?.transcript === 'string') parts.push(c.transcript);
+                      if (typeof c?.text === 'string') parts.push(c.text);
+                      if (c?.text && typeof c.text?.value === 'string') parts.push(c.text.value);
+                    }
+                  }
+
+                  const joined = parts.join(' ').replace(/\s+/g, ' ').trim();
+                  return joined || null;
+                };
+
+                // Primary path (if audio transcript events are available)
                 if (event.type === 'response.audio_transcript.done') {
                   const fullText = currentTranscriptRef.current.trim();
                   if (fullText) {
-                    setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'agent', text: fullText }]);
-                    
-                    // Make D-ID avatar speak with lip sync
-                    const ok = await didRef.current?.speak(fullText);
-                    if (ok === false) showSpeechUnavailable();
+                    await speakAgentText(fullText);
                   }
                   currentTranscriptRef.current = '';
                 }
 
-                // Fallback: Extract response from response.done if transcript wasn't captured
+                // Always handle response.done: this is the most reliable way to get the assistant text.
                 if (event.type === 'response.done') {
-                  const response = event.response as { output?: Array<{ content?: Array<{ transcript?: string; text?: string }> }> } | undefined;
-                  if (response?.output) {
-                    for (const item of response.output) {
-                      if (item.content) {
-                        for (const content of item.content) {
-                          const text = content.transcript || content.text;
-                          if (text && !currentTranscriptRef.current) {
-                            // Only use this if we didn't get transcript from deltas
-                            console.log('Using response.done fallback for text:', text.substring(0, 50));
-                            setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'agent', text }]);
-                            const ok = await didRef.current?.speak(text);
-                            if (ok === false) showSpeechUnavailable();
-                          }
-                        }
-                      }
-                    }
+                  const text = extractAssistantTextFromResponseDone();
+                  if (text) {
+                    await speakAgentText(text);
+                  } else {
+                    console.log('response.done received but no assistant text could be extracted', {
+                      hasResponse: Boolean(evt?.response),
+                      responseKeys: evt?.response ? Object.keys(evt.response) : [],
+                    });
                   }
+                  currentTranscriptRef.current = '';
                 }
 
-                // When user finishes speaking, add their message
+                // When user finishes speaking, add their message (only if input transcription is enabled)
                 if (event.type === 'conversation.item.input_audio_transcription.completed') {
                   const userText = (event.transcript as string)?.trim();
                   if (userText) {
@@ -235,16 +265,17 @@ export const AvatarVideoCall = () => {
                 // Handle transcription failure - still show user spoke
                 if (event.type === 'conversation.item.input_audio_transcription.failed') {
                   console.log('Transcription failed but model may still respond');
-                  // Add a placeholder to show user spoke
                   if (!pendingUserTranscriptRef.current) {
-                    setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'user', text: '(Voice input - transcription unavailable)' }]);
+                    setMessages((prev) => [
+                      ...prev,
+                      { id: ++messageIdRef.current, sender: 'user', text: '(Voice input - transcription unavailable)' },
+                    ]);
                   }
                 }
 
                 // Handle interruption - user started speaking while assistant was talking
                 if (event.type === 'input_audio_buffer.speech_started') {
                   console.log('User interrupted - speech started');
-                  // The server VAD will handle stopping the current response
                 }
               },
               onError: (error) => {
