@@ -8,7 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useNetworkQuality, getOptimalAudioSettings, NetworkQuality } from '@/hooks/useNetworkQuality';
 
 // Your D-ID Agent ID
-const DID_AGENT_ID = 'v2_agt_1VCb8_mq';
+const DID_AGENT_ID = 'v2_agt_2QQ7Tert';
 
 interface Message {
   id: number;
