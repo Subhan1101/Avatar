@@ -50,30 +50,60 @@ export class DIDClient {
       this.streamId = streamData.id;
       this.sessionId = streamData.session_id;
 
-      // Create peer connection
+      // Create peer connection with D-ID's ICE servers
       this.peerConnection = new RTCPeerConnection({
         iceServers: streamData.ice_servers || [{ urls: 'stun:stun.l.google.com:19302' }],
+        iceCandidatePoolSize: 10,
       });
 
-      // Handle incoming tracks
+      // Set remote description first (D-ID's offer)
+      const offerSdp = typeof streamData.offer === 'string' 
+        ? streamData.offer 
+        : streamData.offer.sdp;
+      
+      console.log('Setting remote description from D-ID offer...');
+      await this.peerConnection.setRemoteDescription({
+        type: 'offer',
+        sdp: offerSdp,
+      });
+
+      // Handle incoming tracks - set this up AFTER remote description
       this.peerConnection.ontrack = (event) => {
-        console.log('Received track:', event.track.kind, 'readyState:', event.track.readyState);
+        console.log('🎥 Received track:', event.track.kind, 'readyState:', event.track.readyState);
+        
         if (event.streams && event.streams[0]) {
           const stream = event.streams[0];
-          console.log('Stream received with', stream.getTracks().length, 'tracks');
+          console.log('🎬 Stream received with', stream.getTracks().length, 'tracks');
+          
+          // Log track details
+          stream.getTracks().forEach(track => {
+            console.log(`  - ${track.kind} track: ${track.id}, enabled: ${track.enabled}, readyState: ${track.readyState}`);
+          });
           
           this.callbacks.onStreamReady(stream);
           
           if (this.videoElement) {
+            console.log('📺 Attaching stream to video element');
             this.videoElement.srcObject = stream;
-            // Ensure video plays
-            this.videoElement.play().catch((err) => {
-              console.warn('Video autoplay blocked, attempting with muted:', err);
-              if (this.videoElement) {
-                this.videoElement.muted = true;
-                this.videoElement.play().catch(console.error);
-              }
-            });
+            
+            // Force video to play
+            const playPromise = this.videoElement.play();
+            if (playPromise !== undefined) {
+              playPromise.catch((err) => {
+                console.warn('Video autoplay blocked:', err.message);
+                // Try muted playback as fallback
+                if (this.videoElement) {
+                  this.videoElement.muted = true;
+                  this.videoElement.play().then(() => {
+                    console.log('✅ Video playing (muted)');
+                  }).catch(e => console.error('❌ Video play failed:', e));
+                }
+              }).then(() => {
+                console.log('✅ Video playing');
+              });
+            }
+          } else {
+            console.error('❌ No video element available!');
           }
         }
       };
@@ -126,18 +156,7 @@ export class DIDClient {
         }
       };
 
-      // Set remote description from offer
-      // D-ID returns offer as an object with type and sdp, or as a string
-      const offerSdp = typeof streamData.offer === 'string' 
-        ? streamData.offer 
-        : streamData.offer.sdp;
-      
-      await this.peerConnection.setRemoteDescription({
-        type: 'offer',
-        sdp: offerSdp,
-      });
-
-      // Create answer
+      // Create answer (remote description was already set above)
       const answer = await this.peerConnection.createAnswer();
       await this.peerConnection.setLocalDescription(answer);
 

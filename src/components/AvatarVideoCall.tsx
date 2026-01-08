@@ -50,6 +50,7 @@ export const AvatarVideoCall = () => {
   const [uploadedFile, setUploadedFile] = useState<{ name: string; type: string; data: string } | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [networkIssueMessage, setNetworkIssueMessage] = useState<string | null>(null);
+  const [hasVideoStream, setHasVideoStream] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const didRef = useRef<DIDClient | null>(null);
@@ -334,9 +335,17 @@ export const AvatarVideoCall = () => {
           setStatus('disconnected');
         },
         onStreamReady: (stream) => {
-          console.log('D-ID stream ready');
+          console.log('🎬 D-ID stream ready with tracks:', stream.getTracks().length);
+          setHasVideoStream(true);
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
+            videoRef.current.play().catch(err => {
+              console.warn('Video play failed, trying muted:', err);
+              if (videoRef.current) {
+                videoRef.current.muted = true;
+                videoRef.current.play().catch(console.error);
+              }
+            });
           }
         },
       });
@@ -367,6 +376,10 @@ export const AvatarVideoCall = () => {
     setIsSpeaking(false);
     setIsListening(false);
     setMessages([]);
+    setHasVideoStream(false);
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     toast({
       title: 'Disconnected',
       description: 'Session ended',
@@ -739,7 +752,7 @@ export const AvatarVideoCall = () => {
                 playsInline
                 muted={false}
                 className={`w-full h-full object-contain max-h-[550px] transition-all ${
-                  status === 'connected' ? 'opacity-100' : 'opacity-0 absolute'
+                  hasVideoStream || status === 'connected' ? 'opacity-100' : 'opacity-0 absolute'
                 }`}
                 onLoadedMetadata={() => {
                   console.log('Video metadata loaded');
@@ -747,8 +760,8 @@ export const AvatarVideoCall = () => {
                 }}
               />
 
-              {/* Placeholder when not connected */}
-              {status !== 'connected' && (
+              {/* Placeholder when not connected and no video stream */}
+              {!hasVideoStream && status !== 'connected' && (
                 <div className={`flex items-center justify-center transition-all ${status === 'connecting' || status === 'reconnecting' ? 'animate-pulse' : ''}`}>
                   {status === 'connecting' || status === 'reconnecting' ? (
                     <div className="text-center">
