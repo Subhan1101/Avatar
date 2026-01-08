@@ -737,9 +737,14 @@ export const AvatarVideoCall = () => {
                 ref={videoRef}
                 autoPlay
                 playsInline
+                muted={false}
                 className={`w-full h-full object-contain max-h-[550px] transition-all ${
                   status === 'connected' ? 'opacity-100' : 'opacity-0 absolute'
                 }`}
+                onLoadedMetadata={() => {
+                  console.log('Video metadata loaded');
+                  videoRef.current?.play().catch(console.error);
+                }}
               />
 
               {/* Placeholder when not connected */}
