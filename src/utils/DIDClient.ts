@@ -57,11 +57,23 @@ export class DIDClient {
 
       // Handle incoming tracks
       this.peerConnection.ontrack = (event) => {
-        console.log('Received track:', event.track.kind);
+        console.log('Received track:', event.track.kind, 'readyState:', event.track.readyState);
         if (event.streams && event.streams[0]) {
-          this.callbacks.onStreamReady(event.streams[0]);
+          const stream = event.streams[0];
+          console.log('Stream received with', stream.getTracks().length, 'tracks');
+          
+          this.callbacks.onStreamReady(stream);
+          
           if (this.videoElement) {
-            this.videoElement.srcObject = event.streams[0];
+            this.videoElement.srcObject = stream;
+            // Ensure video plays
+            this.videoElement.play().catch((err) => {
+              console.warn('Video autoplay blocked, attempting with muted:', err);
+              if (this.videoElement) {
+                this.videoElement.muted = true;
+                this.videoElement.play().catch(console.error);
+              }
+            });
           }
         }
       };
