@@ -56,57 +56,65 @@ export class DIDClient {
         iceCandidatePoolSize: 10,
       });
 
-      // Set remote description first (D-ID's offer)
-      const offerSdp = typeof streamData.offer === 'string' 
-        ? streamData.offer 
-        : streamData.offer.sdp;
-      
-      console.log('Setting remote description from D-ID offer...');
-      await this.peerConnection.setRemoteDescription({
-        type: 'offer',
-        sdp: offerSdp,
-      });
-
-      // Handle incoming tracks - set this up AFTER remote description
+      // IMPORTANT: Register track handler BEFORE setRemoteDescription.
+      // Some browsers can dispatch the "track" event during/very shortly after
+      // applying the remote offer; setting the handler afterwards may miss it.
       this.peerConnection.ontrack = (event) => {
         console.log('🎥 Received track:', event.track.kind, 'readyState:', event.track.readyState);
-        
+
         if (event.streams && event.streams[0]) {
           const stream = event.streams[0];
           console.log('🎬 Stream received with', stream.getTracks().length, 'tracks');
-          
+
           // Log track details
-          stream.getTracks().forEach(track => {
-            console.log(`  - ${track.kind} track: ${track.id}, enabled: ${track.enabled}, readyState: ${track.readyState}`);
+          stream.getTracks().forEach((track) => {
+            console.log(
+              `  - ${track.kind} track: ${track.id}, enabled: ${track.enabled}, readyState: ${track.readyState}`,
+            );
           });
-          
+
           this.callbacks.onStreamReady(stream);
-          
+
           if (this.videoElement) {
             console.log('📺 Attaching stream to video element');
             this.videoElement.srcObject = stream;
-            
+
             // Force video to play
             const playPromise = this.videoElement.play();
             if (playPromise !== undefined) {
-              playPromise.catch((err) => {
-                console.warn('Video autoplay blocked:', err.message);
-                // Try muted playback as fallback
-                if (this.videoElement) {
-                  this.videoElement.muted = true;
-                  this.videoElement.play().then(() => {
-                    console.log('✅ Video playing (muted)');
-                  }).catch(e => console.error('❌ Video play failed:', e));
-                }
-              }).then(() => {
-                console.log('✅ Video playing');
-              });
+              playPromise
+                .catch((err) => {
+                  console.warn('Video autoplay blocked:', err.message);
+                  // Try muted playback as fallback
+                  if (this.videoElement) {
+                    this.videoElement.muted = true;
+                    this.videoElement
+                      .play()
+                      .then(() => {
+                        console.log('✅ Video playing (muted)');
+                      })
+                      .catch((e) => console.error('❌ Video play failed:', e));
+                  }
+                })
+                .then(() => {
+                  console.log('✅ Video playing');
+                });
             }
           } else {
             console.error('❌ No video element available!');
           }
         }
       };
+
+      // Set remote description (D-ID's offer)
+      const offerSdp = typeof streamData.offer === 'string' ? streamData.offer : streamData.offer.sdp;
+
+      console.log('Setting remote description from D-ID offer...');
+      await this.peerConnection.setRemoteDescription({
+        type: 'offer',
+        sdp: offerSdp,
+      });
+
 
       // Handle ICE candidates
       this.peerConnection.onicecandidate = async (event) => {
