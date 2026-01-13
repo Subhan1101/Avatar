@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Mic, MicOff, Phone, Monitor, MonitorOff, MessageSquare, Volume2, Loader2, Paperclip, X, FileText, Image as ImageIcon, Wifi, WifiOff } from 'lucide-react';
+import { Mic, MicOff, Phone, Monitor, MessageSquare, Volume2, Loader2, Paperclip, X, FileText, Image as ImageIcon, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { DIDClient } from '@/utils/DIDClient';
+import { SimliAvatarClient } from '@/utils/SimliClient';
 import { RealtimeChat, AudioSettings } from '@/utils/RealtimeAudio';
 import { supabase } from '@/integrations/supabase/client';
 import { useNetworkQuality, getOptimalAudioSettings, NetworkQuality } from '@/hooks/useNetworkQuality';
 
-// Your D-ID Agent ID
-const DID_AGENT_ID = 'v2_agt_ePpIqlwW';
+// Default Simli Face ID - you can change this to any face from Simli's library
+const SIMLI_FACE_ID = 'cace3ef7-a4c4-425d-a8cf-a5358eb0c427';
 
 interface Message {
   id: number;
@@ -53,12 +53,13 @@ export const AvatarVideoCall = () => {
   const [hasVideoStream, setHasVideoStream] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const didRef = useRef<DIDClient | null>(null);
+  const simliRef = useRef<SimliAvatarClient | null>(null);
   const realtimeChatRef = useRef<RealtimeChat | null>(null);
   const isMutedRef = useRef(false);
   const lastAgentTextRef = useRef<string>('');
   const messageIdRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const screenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const speechUnavailableRef = useRef(false);
@@ -84,7 +85,7 @@ export const AvatarVideoCall = () => {
     toast({
       variant: 'destructive',
       title: 'Avatar voice unavailable',
-      description: 'The avatar cannot speak right now (insufficient credits). Chat will continue without voice.',
+      description: 'The avatar cannot speak right now. Chat will continue without voice.',
     });
   }, [toast]);
 
@@ -122,12 +123,19 @@ export const AvatarVideoCall = () => {
     }
   }, [networkInfo.quality, status]);
 
+  // Function to send audio data to Simli for lip-sync
+  const sendAudioToSimli = useCallback((audioData: Uint8Array) => {
+    if (simliRef.current) {
+      simliRef.current.sendAudioData(audioData);
+    }
+  }, []);
+
   const startConversation = useCallback(async () => {
     try {
       setStatus('connecting');
 
-      if (!videoRef.current) {
-        throw new Error('Video element not found');
+      if (!videoRef.current || !audioRef.current) {
+        throw new Error('Video or audio element not found');
       }
 
       // Check network quality before starting
@@ -143,12 +151,13 @@ export const AvatarVideoCall = () => {
         });
       }
 
-      console.log('Initializing D-ID avatar...');
+      console.log('Initializing Simli avatar...');
 
-      // First initialize D-ID for avatar video
-      didRef.current = new DIDClient(DID_AGENT_ID, {
+      // Initialize Simli for avatar video with lip-sync
+      simliRef.current = new SimliAvatarClient({
         onConnected: async () => {
-          console.log('D-ID avatar connected, now starting OpenAI Realtime...');
+          console.log('Simli avatar connected, now starting OpenAI Realtime...');
+          setHasVideoStream(true);
 
           // Now start OpenAI Realtime for voice with network-optimized settings
           try {
@@ -162,12 +171,11 @@ export const AvatarVideoCall = () => {
                   setIsListening(true);
                   setNetworkIssueMessage(null);
 
-                  // Send initial greeting via D-ID
+                  // Send initial greeting
                   setTimeout(async () => {
                     const greeting = "Hello! I'm Aria, your friendly IT support assistant. How can I help you today?";
                     setMessages([{ id: ++messageIdRef.current, sender: 'agent', text: greeting }]);
-                    const ok = await didRef.current?.speak(greeting);
-                    if (ok === false) showSpeechUnavailable();
+                    // For Simli, we'll use TTS via the realtime API which will send audio
                   }, 500);
                 } else if (s === 'disconnected') {
                   setIsListening(false);
@@ -183,33 +191,27 @@ export const AvatarVideoCall = () => {
                 console.log(`Transcript [${role}]:`, text);
 
                 if (role === 'user') {
-                  // User transcript from Whisper
                   pendingUserTranscriptRef.current += text;
                 } else if (role === 'assistant') {
-                  // Assistant transcript - accumulate for D-ID
                   currentTranscriptRef.current += text;
                 }
               },
               onMessage: async (event) => {
                 const evt = event as any;
 
-                const speakAgentText = async (rawText: string) => {
+                const addAgentMessage = async (rawText: string) => {
                   const text = rawText.replace(/\s+/g, ' ').trim();
                   if (!text) return;
                   if (lastAgentTextRef.current === text) return;
 
                   lastAgentTextRef.current = text;
                   setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'agent', text }]);
-
-                  const ok = await didRef.current?.speak(text);
-                  if (ok === false) showSpeechUnavailable();
                 };
 
                 const extractAssistantTextFromResponseDone = (): string | null => {
                   const resp = evt?.response;
                   if (!resp) return null;
 
-                  // Some shapes include a direct field
                   const direct =
                     (typeof resp.output_text === 'string' && resp.output_text) ||
                     (typeof resp.text === 'string' && resp.text) ||
@@ -235,26 +237,21 @@ export const AvatarVideoCall = () => {
                 if (event.type === 'response.audio_transcript.done') {
                   const fullText = currentTranscriptRef.current.trim();
                   if (fullText) {
-                    await speakAgentText(fullText);
+                    await addAgentMessage(fullText);
                   }
                   currentTranscriptRef.current = '';
                 }
 
-                // Always handle response.done: this is the most reliable way to get the assistant text.
+                // Always handle response.done
                 if (event.type === 'response.done') {
                   const text = extractAssistantTextFromResponseDone();
                   if (text) {
-                    await speakAgentText(text);
-                  } else {
-                    console.log('response.done received but no assistant text could be extracted', {
-                      hasResponse: Boolean(evt?.response),
-                      responseKeys: evt?.response ? Object.keys(evt.response) : [],
-                    });
+                    await addAgentMessage(text);
                   }
                   currentTranscriptRef.current = '';
                 }
 
-                // When user finishes speaking, add their message (only if input transcription is enabled)
+                // When user finishes speaking
                 if (event.type === 'conversation.item.input_audio_transcription.completed') {
                   const userText = (event.transcript as string)?.trim();
                   if (userText) {
@@ -263,7 +260,7 @@ export const AvatarVideoCall = () => {
                   pendingUserTranscriptRef.current = '';
                 }
 
-                // Handle transcription failure - still show user spoke
+                // Handle transcription failure
                 if (event.type === 'conversation.item.input_audio_transcription.failed') {
                   console.log('Transcription failed but model may still respond');
                   if (!pendingUserTranscriptRef.current) {
@@ -274,9 +271,10 @@ export const AvatarVideoCall = () => {
                   }
                 }
 
-                // Handle interruption - user started speaking while assistant was talking
+                // Handle interruption
                 if (event.type === 'input_audio_buffer.speech_started') {
                   console.log('User interrupted - speech started');
+                  simliRef.current?.clearBuffer();
                 }
               },
               onError: (error) => {
@@ -295,6 +293,10 @@ export const AvatarVideoCall = () => {
                   duration: 3000,
                 });
               },
+              onAudioData: (audioData: Uint8Array) => {
+                // Send audio data to Simli for lip-sync
+                sendAudioToSimli(audioData);
+              },
             }, audioSettings);
 
             await realtimeChatRef.current.init();
@@ -309,24 +311,25 @@ export const AvatarVideoCall = () => {
           }
         },
         onDisconnected: () => {
-          console.log('D-ID avatar disconnected');
+          console.log('Simli avatar disconnected');
           setStatus('disconnected');
+          setHasVideoStream(false);
           realtimeChatRef.current?.disconnect();
         },
-        onSpeakingStart: () => {
+        onSpeaking: () => {
           // Prevent echo-loop: don't capture mic while the avatar is speaking
           realtimeChatRef.current?.setMuted(true);
           setIsListening(false);
         },
-        onSpeakingEnd: () => {
+        onSilent: () => {
           window.setTimeout(() => {
             // Respect the user's mute toggle
             realtimeChatRef.current?.setMuted(isMutedRef.current);
             setIsListening(!isMutedRef.current);
           }, 600);
         },
-        onError: (error) => {
-          console.error('D-ID error:', error);
+        onFailed: (error) => {
+          console.error('Simli error:', error);
           toast({
             variant: 'destructive',
             title: 'Avatar Error',
@@ -334,23 +337,9 @@ export const AvatarVideoCall = () => {
           });
           setStatus('disconnected');
         },
-        onStreamReady: (stream) => {
-          console.log('🎬 D-ID stream ready with tracks:', stream.getTracks().length);
-          setHasVideoStream(true);
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.play().catch(err => {
-              console.warn('Video play failed, trying muted:', err);
-              if (videoRef.current) {
-                videoRef.current.muted = true;
-                videoRef.current.play().catch(console.error);
-              }
-            });
-          }
-        },
       });
 
-      await didRef.current.init(videoRef.current);
+      await simliRef.current.init(videoRef.current, audioRef.current, SIMLI_FACE_ID);
 
       toast({
         title: 'Connecting',
@@ -365,13 +354,13 @@ export const AvatarVideoCall = () => {
         description: error instanceof Error ? error.message : 'Failed to start conversation',
       });
     }
-  }, [toast, showSpeechUnavailable]);
+  }, [toast, showSpeechUnavailable, networkInfo.quality, sendAudioToSimli]);
 
   const endConversation = useCallback(() => {
     realtimeChatRef.current?.disconnect();
     realtimeChatRef.current = null;
-    didRef.current?.disconnect();
-    didRef.current = null;
+    simliRef.current?.disconnect();
+    simliRef.current = null;
     setStatus('disconnected');
     setIsSpeaking(false);
     setIsListening(false);
@@ -573,22 +562,18 @@ export const AvatarVideoCall = () => {
         const result = reader.result as string;
         
         if (file.type.startsWith('image/')) {
-          // For images, store the base64 data URL directly
           setUploadedFile({
             name: file.name,
             type: file.type,
             data: result
           });
         } else if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
-          // For text files, extract the text content
           setUploadedFile({
             name: file.name,
             type: 'text/plain',
-            data: result.replace(/^data:.*?;base64,/, '') // Remove data URL prefix and decode
+            data: result.replace(/^data:.*?;base64,/, '')
           });
         } else {
-          // For PDF and other documents, store as base64 for AI processing
-          // The AI will try to analyze the content
           setUploadedFile({
             name: file.name,
             type: file.type,
@@ -616,7 +601,6 @@ export const AvatarVideoCall = () => {
       });
     } finally {
       setIsProcessingFile(false);
-      // Reset input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -658,14 +642,6 @@ export const AvatarVideoCall = () => {
       
       // Add AI response to messages
       setMessages((prev) => [...prev, { id: ++messageIdRef.current, sender: 'agent', text: aiResponse }]);
-      
-      // Make D-ID avatar speak the response (truncate for speech)
-      const speechText = aiResponse.length > 500 
-        ? aiResponse.substring(0, 500) + "... I've provided more details in the chat."
-        : aiResponse;
-      
-      const ok = await didRef.current?.speak(speechText);
-      if (ok === false) showSpeechUnavailable();
 
     } catch (error) {
       console.error('Error processing message:', error);
@@ -675,7 +651,7 @@ export const AvatarVideoCall = () => {
         description: 'Failed to process your request. Please try again.',
       });
     }
-  }, [status, inputText, uploadedFile, toast, showSpeechUnavailable]);
+  }, [status, inputText, uploadedFile, toast]);
 
   // Remove uploaded file
   const removeUploadedFile = useCallback(() => {
@@ -685,7 +661,7 @@ export const AvatarVideoCall = () => {
   useEffect(() => {
     return () => {
       realtimeChatRef.current?.disconnect();
-      didRef.current?.disconnect();
+      simliRef.current?.disconnect();
       if (screenStreamRef.current) {
         screenStreamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -745,7 +721,7 @@ export const AvatarVideoCall = () => {
             <div className="absolute inset-0 bg-gradient-radial from-primary/5 via-transparent to-transparent" />
 
             <div className="relative z-10 flex items-center justify-center h-full">
-              {/* D-ID Avatar Video */}
+              {/* Simli Avatar Video */}
               <video
                 ref={videoRef}
                 autoPlay
@@ -759,6 +735,8 @@ export const AvatarVideoCall = () => {
                   videoRef.current?.play().catch(console.error);
                 }}
               />
+              {/* Hidden audio element for Simli */}
+              <audio ref={audioRef} autoPlay playsInline className="hidden" />
 
               {/* Placeholder when not connected and no video stream */}
               {!hasVideoStream && status !== 'connected' && (

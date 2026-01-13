@@ -367,22 +367,25 @@ export class RealtimeChat {
 
     switch (event.type) {
       case 'session.created':
-        console.log('Session created, configuring with network-optimized settings...');
-        // Configure session: audio IN + text OUT (we use D-ID for voice), with server VAD.
+        console.log('Session created, configuring with audio output for Simli lip-sync...');
+        // Configure session: audio IN + audio OUT for Simli lip-sync, with server VAD.
         this.ws?.send(
           JSON.stringify({
             type: 'session.update',
             session: {
-              modalities: ['text'],
+              modalities: ['text', 'audio'],
               input_audio_format: 'pcm16',
-              // We don't need OpenAI audio output; D-ID speaks the text.
-              // Keeping output text makes response.done reliably contain text.
+              output_audio_format: 'pcm16',
+              voice: 'alloy',
               turn_detection: {
                 type: 'server_vad',
                 threshold: this.audioSettings.threshold,
                 prefix_padding_ms: this.audioSettings.prefixPadding,
                 silence_duration_ms: this.audioSettings.silenceDuration,
                 create_response: true,
+              },
+              input_audio_transcription: {
+                model: 'gpt-4o-audio-preview',
               },
               temperature: 0.7,
               max_response_output_tokens: 500,
